@@ -1,6 +1,8 @@
 import re
-from bertopic import BERTopic
-from sentence_transformers import SentenceTransformer
+from collections import Counter
+import yake
+import spacy
+
 
 STOP_TOPICS = {
     "response",
@@ -17,53 +19,98 @@ STOP_TOPICS = {
     "information",
     "question",
     "answer",
-    "content"
+    "content",
+    "label",
+    "html",
+    "json",
+    "markdown",
+    "gemini",
+    "timestamp",
+    "platform",
+    "source",
+    "hash",
+    "title"
 }
+
 
 class TopicExtractor:
 
     def __init__(self):
-        self.embedding_model = SentenceTransformer(
-            "all-MiniLM-L6-v2"
+        self.keyword_extractor = yake.KeywordExtractor(
+            lan="en",
+            n=3,
+            dedupLim=0.3,
+            top=5
         )
-        self.topic_model = BERTopic(
-            embedding_model=self.embedding_model,
-            verbose=True,
-            calculate_probabilities=False
-        )
+        self.nlp = spacy.load("en_core_web_sm")
 
     def clean_text(self, text):
         text = re.sub(r'\[\[.*?\]\]', '', text)
         text = re.sub(r'```.*?```', '', text, flags=re.DOTALL)
+        text = re.sub(r'`.*?`', '', text)
+        text = re.sub(r'import .*', '', text)
+        text = re.sub(r'from .* import .*', '', text)
+        text = re.sub(r'https?://\S+', '', text)
         text = re.sub(r'[#>*_`-]', ' ', text)
         text = re.sub(r'\s+', ' ', text)
         return text.strip()
+
+    def _valid_topic(self, topic):
+        topic = topic.strip().lower()
+        if topic in STOP_TOPICS:
+            return False
+        if len(topic) < 4:
+            return False
+        if len(topic.split()) > 4:
+            return False
+        if topic.isdigit():
+            return False
+        if not any(c.isalpha() for c in topic):
+            return False
+        if re.search(r'\d', topic):
+            return False
+        if any(char in topic for char in "{}[]()/\\=:;<>@#$%^&*|"):
+            return False
+        if topic.startswith(("the ", "this ", "that ")):
+            return False
+
+        return True
 
     def extract_topics(self, documents):
         cleaned_docs = [
             self.clean_text(doc)
             for doc in documents
         ]
-        topics, _ = self.topic_model.fit_transform(
-            cleaned_docs
-        )
-        topic_info = self.topic_model.get_topic_info()
-        final_topics = set()
-        
-        for _, row in topic_info.iterrows():
-            topic_id = row["Topic"]
-            if topic_id == -1:
-                continue
-            topic_words = self.topic_model.get_topic(topic_id)
-            if not topic_words:
-                continue
-            top_keyword = topic_words[0][0].strip().lower()
-            if top_keyword in STOP_TOPICS:
-                continue
-            if len(top_keyword) < 4:
-                continue
-            if top_keyword.isdigit():
-                continue
-            final_topics.add(top_keyword)
 
-        return sorted(final_topics)
+        topic_counter = Counter()
+
+        for doc in cleaned_docs:
+            yake_keywords = self.keyword_extractor.extract_keywords(doc)
+            for keyword, score in yake_keywords:
+                keyword = keyword.lower().strip()
+                keyword = re.sub(r'\s+', ' ', keyword)
+
+                if not self._valid_topic(keyword):
+                    continue
+
+                topic_counter[keyword.title()] += 2
+
+            parsed_doc = self.nlp(doc)
+
+            for chunk in parsed_doc.noun_chunks:
+                topic = chunk.text.lower().strip()
+                topic = re.sub(r'\s+', ' ', topic)
+                if not self._valid_topic(topic):
+                    continue
+
+                topic_counter[topic.title()] += 1
+
+        final_topics = []
+
+        for topic, count in topic_counter.most_common():
+            if count < 3:
+                continue
+
+            final_topics.append(topic)
+
+        return sorted(set(final_topics))

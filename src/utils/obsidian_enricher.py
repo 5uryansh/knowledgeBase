@@ -1,6 +1,7 @@
 import re
 from pathlib import Path
 from src.utils.topic_extractor import TopicExtractor
+from tqdm import tqdm
 
 class ObsidianEnricher:
 
@@ -19,35 +20,28 @@ class ObsidianEnricher:
         return markdown_files, documents
 
     def _inject_links(self, text, topics):
-        for topic in sorted(topics, key=len, reverse=True):
+        for topic in topics:
             escaped = re.escape(topic)
             pattern = rf'(?<!\[\[)\b{escaped}\b(?!\]\])'
-            replacement = f'[[{topic}]]'
-
-            text = re.sub(
-                pattern,
-                replacement,
-                text,
-                flags=re.IGNORECASE
-            )
-
+            replacement = lambda m: f"[[{m.group(0)}]]"
+            text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
         return text
 
     def enrich(self):
         markdown_files, documents = self._load_markdown_files()
-        topics = self.extractor.extract_topics(documents)
-        print("\nDetected Topics:\n")
+        
+        for md_file, document in tqdm(
+            zip(markdown_files, documents),
+            total=len(markdown_files),
+            desc="Enriching markdown files"
+        ):
+            topics = self.extractor.extract_topics([document])
 
-        for topic in topics:
-            print(f"- {topic}")
-
-        for md_file in markdown_files:
             with open(md_file, "r", encoding="utf-8") as f:
                 content = f.read()
-            enriched_content = self._inject_links(
-                content,
-                topics
-            )
+            enriched_content = self._inject_links(content, topics)
+
             with open(md_file, "w", encoding="utf-8") as f:
                 f.write(enriched_content)
+
             print(f"Enriched: {md_file}")
