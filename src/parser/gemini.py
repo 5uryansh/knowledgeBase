@@ -1,78 +1,117 @@
-# parser/chat_parser.py
-
 import json
 from pathlib import Path
-from typing import Dict, List, Any, Optional
-from bs4 import BeautifulSoup
+from datetime import datetime
+from html.parser import HTMLParser
 
 
-class GeminiParser:
-    """
-    Parser for Gemini exported conversation JSON files.
-    """
+class HTMLToMarkdownParser(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.parts = []
 
-    def __init__(self, file_path: str):
-        self.file_path = Path(file_path)
-        self.raw_data: List[Dict[str, Any]] = []
+    def handle_starttag(self, tag, attrs):
+        if tag in ["p", "div"]:
+            self.parts.append("\n")
+        elif tag in ["h1", "h2", "h3", "h4"]:
+            self.parts.append("\n## ")
+        elif tag == "li":
+            self.parts.append("\n- ")
+        elif tag == "br":
+            self.parts.append("\n")
+        elif tag == "strong":
+            self.parts.append("**")
+        elif tag == "em":
+            self.parts.append("*")
+        elif tag == "code":
+            self.parts.append("`")
 
-    def load(self) -> None:
-        """
-        Load JSON export file.
-        """
-        with open(self.file_path, "r", encoding="utf-8") as f:
-            self.raw_data = json.load(f)
+    def handle_endtag(self, tag):
+        if tag == "strong":
+            self.parts.append("**")
+        elif tag == "em":
+            self.parts.append("*")
+        elif tag == "code":
+            self.parts.append("`")
+        elif tag in ["p", "ul", "ol"]:
+            self.parts.append("\n")
 
-    def _extract_html_text(self, html_content: str) -> str:
-        """
-        Convert Gemini safeHtmlItem HTML into plain text.
-        """
-        soup = BeautifulSoup(html_content, "html.parser")
-        return soup.get_text(separator="\n").strip()
+    def handle_data(self, data):
+        cleaned = data.strip()
+        if not cleaned:
+            return
+        if cleaned in ["text", "label"]:
+            return
+        self.parts.append(cleaned)
 
-    def parse_conversations(self) -> List[Dict[str, Any]]:
-        """
-        Parse all Gemini conversations into structured format.
-        """
+    def get_markdown(self):
+        return "".join(self.parts).strip()
 
-        parsed_conversations = []
 
-        for item in self.raw_data:
+class GeminiChatParser:
 
-            conversation = {
-                "source": "gemini",
-                "header": item.get("header"),
-                "title": item.get("title"),
-                "time": item.get("time"),
-                "products": item.get("products", []),
-                "activity_controls": item.get("activityControls", []),
-                "messages": []
-            }
+    def __init__(self, input_file, output_dir):
+        self.input_file = Path(input_file)
+        self.output_dir = Path(output_dir)
 
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+
+    def _html_to_markdown(self, html_text):
+        parser = HTMLToMarkdownParser()
+        parser.feed(html_text)
+        return parser.get_markdown()
+
+    def _sanitize_filename(self, text):
+        return "".join(
+            c if c.isalnum() or c in ["-", "_"] else "_"
+            for c in text[:80]
+        )
+
+    def parse(self):
+
+        with open(self.input_file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        markdown_parts = []
+
+        markdown_parts.append("# Gemini Conversation Export\n")
+
+        sorted_data = sorted(
+            data,
+            key=lambda x: x.get("time", "")
+        )
+
+        for item in sorted_data:
+
+            title = item.get("title", "untitled")
+            time = item.get("time", "")
             safe_html_items = item.get("safeHtmlItem", [])
+
+            markdown_parts.append("---\n")
+
+            if time:
+                markdown_parts.append(f"## {time}\n")
+            else:
+                markdown_parts.append("## Unknown Time\n")
+
+            markdown_parts.append(f"### Prompt\n")
+            markdown_parts.append(f"{title}\n")
+
+            markdown_parts.append("### Response\n")
 
             for html_item in safe_html_items:
 
                 html_content = html_item.get("html", "")
+                markdown_text = self._html_to_markdown(html_content)
 
-                parsed_message = {
-                    "type": "html",
-                    "raw_html": html_content,
-                    "text": self._extract_html_text(html_content)
-                }
+                markdown_parts.append(markdown_text)
+                markdown_parts.append("\n")
 
-                conversation["messages"].append(parsed_message)
+        final_markdown = "\n".join(markdown_parts)
+        final_markdown = final_markdown.replace("[['text', 'label']]", "")
 
-            parsed_conversations.append(conversation)
+        output_path = self.output_dir / "gemini_export.md"
 
-        return parsed_conversations
+        with open(output_path, "w", encoding="utf-8") as md_file:
+            md_file.write(final_markdown)
 
-
-if __name__ == "__main__":
-
-    parser = GeminiParser("gemini_export.json")
-
-    parser.load()
-
-    conversations = parser.parse_conversations()
-
-    print(json.dumps(conversations, indent=2, ensure_ascii=False))
+        print(f"Generated: {output_path}")
