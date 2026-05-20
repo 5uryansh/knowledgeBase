@@ -57,11 +57,14 @@ class TopicExtractor:
 
     def _valid_topic(self, topic):
         topic = topic.strip().lower()
+
         if topic in STOP_TOPICS:
             return False
+
         if len(topic) < 4:
             return False
-        if len(topic.split()) > 4:
+
+        if len(topic.split()) > 3:
             return False
         if topic.isdigit():
             return False
@@ -85,7 +88,9 @@ class TopicExtractor:
         topic_counter = Counter()
 
         for doc in cleaned_docs:
+
             yake_keywords = self.keyword_extractor.extract_keywords(doc)
+
             for keyword, score in yake_keywords:
                 keyword = keyword.lower().strip()
                 keyword = re.sub(r'\s+', ' ', keyword)
@@ -100,6 +105,7 @@ class TopicExtractor:
             for chunk in parsed_doc.noun_chunks:
                 topic = chunk.text.lower().strip()
                 topic = re.sub(r'\s+', ' ', topic)
+
                 if not self._valid_topic(topic):
                     continue
 
@@ -108,9 +114,10 @@ class TopicExtractor:
         final_topics = []
 
         for topic, count in topic_counter.most_common():
-            if count < 3:
+
+            if count < 5:
                 continue
 
             final_topics.append(topic)
 
-        return sorted(set(final_topics))
+        return final_topics[:25]
