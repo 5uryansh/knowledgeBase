@@ -2,7 +2,7 @@ from pathlib import Path
 from src.parser.gemini import GeminiChatParser
 from src.utils.obsidian_enricher import ObsidianEnricher
 
-VAULT_PATH = Path("/mnt/c/Users/Suryansh/Documents/Personal/KnowledgeBase/KnowledgeBase/gemini")
+VAULT_PATH = Path("C:/Users/Suryansh/Documents/Personal/KnowledgeBase/KnowledgeBase/gemini")
 
 def main():
 
