@@ -8,7 +8,7 @@ from tqdm import tqdm
 
 class ObsidianEnricher:
 
-    def __init__(self, vault_dir):
+    def __init__(self, vault_dir, edge_store=None):
         self.vault_dir = Path(vault_dir)
         self.topic_extractor = TopicExtractor()
         self.entity_extractor = EntityExtractor()
@@ -19,7 +19,7 @@ class ObsidianEnricher:
         self.entities_dir.mkdir(parents=True, exist_ok=True)
         self.topics_dir.mkdir(parents=True, exist_ok=True)
 
-        self.edge_store = EdgeStore()
+        self.edge_store = edge_store or EdgeStore()
         self.edge_builder = EdgeBuilder(self.edge_store)
 
     def _load_markdown_files(self):
