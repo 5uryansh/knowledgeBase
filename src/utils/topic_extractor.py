@@ -85,6 +85,8 @@ class TopicExtractor:
                 topic = chunk.text.lower().strip()
                 topic = re.sub(r'\s+', ' ', topic)
 
+                if chunk.root.pos_ not in {"NOUN", "PROPN"}:
+                    continue
                 if not self._valid_topic(topic):
                     continue
 

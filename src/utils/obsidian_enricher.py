@@ -2,6 +2,8 @@ import re
 from pathlib import Path
 from src.utils.topic_extractor import TopicExtractor
 from src.utils.entity_extractor import EntityExtractor
+from src.cooccurrence.edge_store import EdgeStore
+from src.cooccurrence.edge_builder import EdgeBuilder
 from tqdm import tqdm
 
 class ObsidianEnricher:
@@ -16,6 +18,9 @@ class ObsidianEnricher:
 
         self.entities_dir.mkdir(parents=True, exist_ok=True)
         self.topics_dir.mkdir(parents=True, exist_ok=True)
+
+        self.edge_store = EdgeStore()
+        self.edge_builder = EdgeBuilder(self.edge_store)
 
     def _load_markdown_files(self):
         markdown_files = list(
@@ -58,6 +63,9 @@ class ObsidianEnricher:
             text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
         return text
 
+    def get_edges(self):
+        return self.edge_store.get_edges()
+
     def enrich(self):
         markdown_files, documents = self._load_markdown_files()
         
@@ -71,6 +79,7 @@ class ObsidianEnricher:
             with open(md_file, "r", encoding="utf-8") as f:
                 content = f.read()
             enriched_content = self._inject_links(content, topics, entities)
+            self.edge_builder.process_document(enriched_content)
 
             with open(md_file, "w", encoding="utf-8") as f:
                 f.write(enriched_content)
