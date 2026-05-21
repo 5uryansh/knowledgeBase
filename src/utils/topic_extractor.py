@@ -4,6 +4,7 @@ import yake
 import spacy
 import yaml
 from pathlib import Path
+from src.utils.text_utils import normalize_node_name
 
 config_path = Path("config/stop_words.yaml")
 with open(config_path, "r") as f:
@@ -96,6 +97,6 @@ class TopicExtractor:
             if count < 5:
                 continue
 
-            final_topics.append(topic)
+            final_topics.append({"display": topic, "node": normalize_node_name(topic)})
 
         return final_topics[:25]

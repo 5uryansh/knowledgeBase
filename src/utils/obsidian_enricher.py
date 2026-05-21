@@ -32,26 +32,29 @@ class ObsidianEnricher:
 
     def _create_entity_notes(self, entities):
         for entity in entities:
-            safe_entity = self._sanitize_filename(entity)
+            safe_entity = self._sanitize_filename(entity["node"])
             path = self.entities_dir / f"{safe_entity}.md"
             if not path.exists():
                 with open(path, "w", encoding="utf-8") as f:
-                    f.write(f"# {entity}\n")
+                    f.write(f"# {entity['display']}\n")
 
     def _create_topic_notes(self, topics):
         for topic in topics:
-            safe_topic = self._sanitize_filename(topic)
+            safe_topic = self._sanitize_filename(topic["node"])
             path = self.topics_dir / f"{safe_topic}.md"
             if not path.exists():
                 with open(path, "w", encoding="utf-8") as f:
-                    f.write(f"# {topic}\n")
+                    f.write(f"# {topic['display']}\n")
 
     def _inject_links(self, text, topics, entities):
-        all_links = set(topics + entities)
+        all_links = topics + entities
+
         for item in all_links:
-            escaped = re.escape(item)
+            display = item["display"]
+            node = item["node"]
+            escaped = re.escape(display)
             pattern = rf'(?<!\[\[)\b{escaped}\b(?!\]\])'
-            replacement = lambda m: f"[[{m.group(0)}]]"
+            replacement = (lambda m: f"[[{node}|{m.group(0)}]]")
             text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
         return text
 

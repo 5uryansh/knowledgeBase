@@ -1,8 +1,13 @@
+import os
+os.environ["HF_HUB_OFFLINE"] = "1"
+os.environ["TRANSFORMERS_OFFLINE"] = "1"
+
 import re
 from collections import Counter
 from gliner import GLiNER
 import yaml
 from pathlib import Path
+from src.utils.text_utils import normalize_node_name
 
 
 config_path = Path("config/stop_words.yaml")
@@ -110,6 +115,6 @@ class EntityExtractor:
             if count < 2:
                 continue
 
-            final_entities.append(entity)
+            final_entities.append({"display": entity, "node": normalize_node_name(entity)})
 
         return final_entities[:50]
