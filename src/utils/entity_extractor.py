@@ -5,24 +5,11 @@ import yaml
 from pathlib import Path
 
 
-STOP_ENTITIES = {
-    "gemini",
-    "json",
-    "markdown",
-    "response",
-    "prompt",
-    "timestamp",
-    "platform",
-    "source",
-    "hash",
-    "question",
-    "answer",
-    "content",
-    "code",
-    "file",
-    "text",
-    "data"
-}
+config_path = Path("config/stop_words.yaml")
+with open(config_path, "r") as f:
+    config = yaml.safe_load(f)
+    
+STOP_ENTITIES = config["words"]
 
 
 class EntityExtractor:

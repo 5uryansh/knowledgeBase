@@ -2,36 +2,14 @@ import re
 from collections import Counter
 import yake
 import spacy
+import yaml
+from pathlib import Path
 
-
-STOP_TOPICS = {
-    "response",
-    "data",
-    "string",
-    "prompt",
-    "text",
-    "output",
-    "input",
-    "file",
-    "code",
-    "message",
-    "result",
-    "information",
-    "question",
-    "answer",
-    "content",
-    "label",
-    "html",
-    "json",
-    "markdown",
-    "gemini",
-    "timestamp",
-    "platform",
-    "source",
-    "hash",
-    "title"
-}
-
+config_path = Path("config/stop_words.yaml")
+with open(config_path, "r") as f:
+    config = yaml.safe_load(f)
+    
+STOP_TOPICS = config["words"]
 
 class TopicExtractor:
 
