@@ -4,11 +4,13 @@ from src.utils.topic_extractor import TopicExtractor
 from src.utils.entity_extractor import EntityExtractor
 from src.cooccurrence.edge_store import EdgeStore
 from src.cooccurrence.edge_builder import EdgeBuilder
+from src.relations.relation_store import RelationStore
+from src.relations.relation_extractor import RelationExtractor
 from tqdm import tqdm
 
 class ObsidianEnricher:
 
-    def __init__(self, vault_dir, edge_store=None):
+    def __init__(self, vault_dir, edge_store=None, relation_store=None):
         self.vault_dir = Path(vault_dir)
         self.topic_extractor = TopicExtractor()
         self.entity_extractor = EntityExtractor()
@@ -21,6 +23,9 @@ class ObsidianEnricher:
 
         self.edge_store = edge_store or EdgeStore()
         self.edge_builder = EdgeBuilder(self.edge_store)
+
+        self.relation_store = (relation_store or RelationStore())
+        self.relation_extractor = RelationExtractor(self.relation_store)
 
     def _load_markdown_files(self):
         markdown_files = list(
@@ -65,6 +70,9 @@ class ObsidianEnricher:
 
     def get_edges(self):
         return self.edge_store.get_edges()
+    
+    def get_relations(self):
+        return self.relation_store.get_relations()
 
     def enrich(self):
         markdown_files, documents = self._load_markdown_files()
@@ -80,6 +88,7 @@ class ObsidianEnricher:
                 content = f.read()
             enriched_content = self._inject_links(content, topics, entities)
             self.edge_builder.process_document(enriched_content)
+            self.relation_extractor.process_document(enriched_content)
 
             with open(md_file, "w", encoding="utf-8") as f:
                 f.write(enriched_content)
