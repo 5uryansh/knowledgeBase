@@ -6,6 +6,7 @@ from src.cooccurrence.edge_store import EdgeStore
 from src.cooccurrence.edge_builder import EdgeBuilder
 from src.relations.relation_store import RelationStore
 from src.relations.relation_extractor import RelationExtractor
+from src.utils.mention_writer import MentionWriter
 from tqdm import tqdm
 
 class ObsidianEnricher:
@@ -26,6 +27,7 @@ class ObsidianEnricher:
 
         self.relation_store = (relation_store or RelationStore())
         self.relation_extractor = RelationExtractor(self.relation_store)
+        self.mention_writer = MentionWriter(vault_root=self.vault_dir.parent.parent)
 
     def _load_markdown_files(self):
         markdown_files = list(
@@ -83,6 +85,7 @@ class ObsidianEnricher:
 
             self._create_entity_notes(entities)
             self._create_topic_notes(topics)
+            self.mention_writer.write_mentions(markdown_file=md_file, topics=topics, entities=entities)
 
             with open(md_file, "r", encoding="utf-8") as f:
                 content = f.read()
