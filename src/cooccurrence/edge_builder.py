@@ -46,9 +46,3 @@ class EdgeBuilder:
                 continue
 
             self._build_edges_from_nodes(nodes, context="sentence")
-
-        conversation_nodes = self._extract_links(text)
-
-        if len(conversation_nodes) >= 2:
-
-            self._build_edges_from_nodes(conversation_nodes,context="conversation")

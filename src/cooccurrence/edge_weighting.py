@@ -1,7 +1,6 @@
 CONTEXT_WEIGHTS = {
-    "sentence": 3,
-    "paragraph": 2,
-    "conversation": 1
+    "sentence": 5,
+    "paragraph": 2
 }
 
 

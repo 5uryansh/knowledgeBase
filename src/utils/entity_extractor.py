@@ -32,7 +32,6 @@ class EntityExtractor:
         self.labels = config["labels"]
 
         self.regex_patterns = [
-            r'\b[A-Z][a-zA-Z0-9\-\_]+\b',
             r'\b(?:GPT|Gemma|Llama|BERT)\-?[A-Za-z0-9\.]*\b',
             r'\b[a-zA-Z_]+\.[a-zA-Z_]+\b'
         ]
@@ -66,6 +65,19 @@ class EntityExtractor:
             return False
 
         if not any(c.isalpha() for c in entity):
+            return False
+        
+        if entity.lower() in {
+            "uses",
+            "causes",
+            "handles",
+            "using",
+            "based",
+            "improves",
+            "results",
+            "depends",
+            "supports"
+        }:
             return False
 
         return True
