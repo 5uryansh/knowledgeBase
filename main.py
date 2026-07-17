@@ -16,13 +16,13 @@ CONVERSATION_PATH_CLAUDE = VAULT_ROOT / "conversations" / "claude"
 def main():
     global_edge_store = EdgeStore()
     global_relation_store = RelationStore()
-    # gemini_parser = GeminiChatParser(
-    #     input_file=Path("data/gemini/Takeout/My Activity/Gemini Apps/MyActivity.json"),
-    #     output_dir=CONVERSATION_PATH_GEMINI
-    # )
-    # gemini_parser.parse()
-    # gemini_enricher = ObsidianEnricher(vault_dir=CONVERSATION_PATH_GEMINI, edge_store=global_edge_store, relation_store=global_relation_store)
-    # gemini_enricher.enrich()
+    gemini_parser = GeminiChatParser(
+        input_file=Path("data/gemini/Takeout/My Activity/Gemini Apps/MyActivity.json"),
+        output_dir=CONVERSATION_PATH_GEMINI
+    )
+    gemini_parser.parse()
+    gemini_enricher = ObsidianEnricher(vault_dir=CONVERSATION_PATH_GEMINI, edge_store=global_edge_store, relation_store=global_relation_store)
+    gemini_enricher.enrich()
 
     claude_parser = ClaudeChatParser(
         input_file=Path("data/claude/conversations.json"),

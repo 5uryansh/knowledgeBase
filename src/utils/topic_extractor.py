@@ -96,7 +96,7 @@ class TopicExtractor:
 
         for topic, count in topic_counter.most_common():
 
-            if count < 5:
+            if count < 8:
                 continue
 
             final_topics.append({"display": topic, "node": normalize_node_name(topic)})
