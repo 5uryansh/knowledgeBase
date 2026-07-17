@@ -7,15 +7,18 @@ from src.cooccurrence.edge_store import EdgeStore
 from src.relations.relation_store import RelationStore
 from src.relations.relation_exporter import RelationExporter
 from src.relations.relation_markdown_writer import RelationMarkdownWriter
+from src.parser.chatgpt import ChatGPTChatParser
 
-VAULT_ROOT = Path("C:/Users/Suryansh/Documents/Personal/KnowledgeBase/KnowledgeBase")
+VAULT_ROOT = Path("/mnt/c/Users/Suryansh/Documents/KnowledgeBase")
 
 CONVERSATION_PATH_GEMINI = VAULT_ROOT / "conversations" / "gemini"
 CONVERSATION_PATH_CLAUDE = VAULT_ROOT / "conversations" / "claude"
+CONVERSATION_PATH_CHATGPT = VAULT_ROOT / "conversations" / "chatgpt"
 
 def main():
     global_edge_store = EdgeStore()
     global_relation_store = RelationStore()
+    
     gemini_parser = GeminiChatParser(
         input_file=Path("data/gemini/Takeout/My Activity/Gemini Apps/MyActivity.json"),
         output_dir=CONVERSATION_PATH_GEMINI
@@ -31,6 +34,15 @@ def main():
     claude_parser.parse()
     claude_enricher = ObsidianEnricher(vault_dir=CONVERSATION_PATH_CLAUDE, edge_store=global_edge_store, relation_store=global_relation_store)
     claude_enricher.enrich()
+
+    chatgpt_parser = ChatGPTChatParser(
+        input_file=Path("data/chatgpt/conversations.json"),
+        output_dir=CONVERSATION_PATH_CHATGPT
+    )
+    chatgpt_parser.parse()
+
+    chatgpt_enricher = ObsidianEnricher(vault_dir=CONVERSATION_PATH_CHATGPT, edge_store=global_edge_store, relation_store=global_relation_store)
+    chatgpt_enricher.enrich()
 
     graph_exporter = GraphExporter(output_dir=VAULT_ROOT)
     graph_exporter.export_edges(global_edge_store.get_edges())

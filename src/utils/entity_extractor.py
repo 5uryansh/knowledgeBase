@@ -1,6 +1,4 @@
 import os
-os.environ["HF_HUB_OFFLINE"] = "1"
-os.environ["TRANSFORMERS_OFFLINE"] = "1"
 
 import re
 from collections import Counter
@@ -20,9 +18,19 @@ STOP_ENTITIES = config["words"]
 class EntityExtractor:
 
     def __init__(self):
-        self.model = GLiNER.from_pretrained(
-            "urchade/gliner_small-v2.1"
-        )
+        try:
+            self.model = GLiNER.from_pretrained(
+                "urchade/gliner_small-v2.1",
+                local_files_only=True
+            )
+            print("Loaded GLiNER model from local cache")
+
+        except Exception:
+            print("GLiNER model not found locally. Downloading from Hugging Face...")
+
+            self.model = GLiNER.from_pretrained(
+                "urchade/gliner_small-v2.1"
+            )
 
         config_path = Path("config/entity_labels.yaml")
 
