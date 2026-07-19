@@ -1,4 +1,5 @@
 import re
+from pathlib import Path
 
 def normalize_node_name(text):
     text = text.strip()
@@ -8,3 +9,6 @@ def normalize_node_name(text):
 
 def sanitize_filename(text):
     return re.sub(r'[<>:"/\\|?*]', '', text).strip()
+
+def find_markdown_files(root: Path) -> list[Path]:
+    return sorted(root.rglob("*.md"))
