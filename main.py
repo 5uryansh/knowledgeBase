@@ -8,6 +8,8 @@ from src.relations.relation_store import RelationStore
 from src.relations.relation_exporter import RelationExporter
 from src.relations.relation_markdown_writer import RelationMarkdownWriter
 from src.parser.chatgpt import ChatGPTChatParser
+from src.cooccurrence.edge_builder import EdgeBuilder
+from src.relations.relation_extractor import RelationExtractor
 from src.retrieval.chunker import Chunker
 from src.retrieval.embedder import Embedder
 from src.retrieval.indexer import Indexer
@@ -21,34 +23,60 @@ CONVERSATION_PATH_GEMINI = VAULT_ROOT / "conversations" / "gemini"
 CONVERSATION_PATH_CLAUDE = VAULT_ROOT / "conversations" / "claude"
 CONVERSATION_PATH_CHATGPT = VAULT_ROOT / "conversations" / "chatgpt"
 
+
+def process_source(parser_cls, input_file: Path, output_dir: Path, name: str, edge_store: EdgeStore, relation_store: RelationStore):
+    if not input_file.exists():
+        print(f"Skipping {name}: input file not found.")
+        return
+    print(f"Processing {name}...")
+
+    parser = parser_cls(input_file=input_file, output_dir=output_dir)
+    parser.parse()
+    enricher = ObsidianEnricher(vault_dir=output_dir, edge_store=edge_store, relation_store=relation_store)
+    enricher.enrich()
+
+
 def main():
     global_edge_store = EdgeStore()
     global_relation_store = RelationStore()
-    
-    # gemini_parser = GeminiChatParser(
-    #     input_file=Path("data/gemini/Takeout/My Activity/Gemini Apps/MyActivity.json"),
-    #     output_dir=CONVERSATION_PATH_GEMINI
-    # )
-    # gemini_parser.parse()
-    # gemini_enricher = ObsidianEnricher(vault_dir=CONVERSATION_PATH_GEMINI, edge_store=global_edge_store, relation_store=global_relation_store)
-    # gemini_enricher.enrich()
 
-    # claude_parser = ClaudeChatParser(
-    #     input_file=Path("data/claude/conversations.json"),
-    #     output_dir=CONVERSATION_PATH_CLAUDE
-    # )
-    # claude_parser.parse()
-    # claude_enricher = ObsidianEnricher(vault_dir=CONVERSATION_PATH_CLAUDE, edge_store=global_edge_store, relation_store=global_relation_store)
-    # claude_enricher.enrich()
-
-    chatgpt_parser = ChatGPTChatParser(
-        input_file=Path("data/chatgpt/conversations.json"),
-        output_dir=CONVERSATION_PATH_CHATGPT
+    process_source(
+        GeminiChatParser,
+        Path("data/gemini/Takeout/My Activity/Gemini Apps/MyActivity.json"),
+        CONVERSATION_PATH_GEMINI,
+        "Gemini",
+        global_edge_store,
+        global_relation_store,
     )
-    chatgpt_parser.parse()
 
-    chatgpt_enricher = ObsidianEnricher(vault_dir=CONVERSATION_PATH_CHATGPT, edge_store=global_edge_store, relation_store=global_relation_store)
-    chatgpt_enricher.enrich()
+    process_source(
+        ClaudeChatParser,
+        Path("data/claude/conversations.json"),
+        CONVERSATION_PATH_CLAUDE,
+        "Claude",
+        global_edge_store,
+        global_relation_store,
+    )
+
+    process_source(
+        ChatGPTChatParser,
+        Path("data/chatgpt/conversations.json"),
+        CONVERSATION_PATH_CHATGPT,
+        "ChatGPT",
+        global_edge_store,
+        global_relation_store,
+    )
+
+    edge_builder = EdgeBuilder(global_edge_store)
+    relation_extractor = RelationExtractor(global_relation_store)
+
+    for conv_dir in [CONVERSATION_PATH_CHATGPT, CONVERSATION_PATH_GEMINI, CONVERSATION_PATH_CLAUDE]:
+        if conv_dir.exists():
+            for md_file in find_markdown_files(conv_dir):
+                with open(md_file, "r", encoding="utf-8") as f:
+                    content = f.read()
+                edge_builder.process_document(content)
+                relation_extractor.process_document(content)
 
     graph_exporter = GraphExporter(output_dir=INDEX_DIR)
     graph_exporter.export_edges(global_edge_store.get_edges())

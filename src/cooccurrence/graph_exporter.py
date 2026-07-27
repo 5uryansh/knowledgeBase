@@ -12,7 +12,7 @@ class GraphExporter:
     def export_edges(self, edges):
         graph = defaultdict(list)
         for edge in edges:
-            graph[edge.source].append(edge.target)
-            graph[edge.target].append(edge.source) 
+            graph[edge["source"]].append(edge["target"])
+            graph[edge["target"]].append(edge["source"]) 
         with (self.output_dir / "graph_edges.json").open("w", encoding="utf-8") as f:
             json.dump(graph, f, indent=2)
