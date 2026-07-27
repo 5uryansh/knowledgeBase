@@ -1,3 +1,5 @@
+from collections import defaultdict
+import json
 from pathlib import Path
 from src.retrieval.chunk_store import ChunkStore
 from src.retrieval.embedder import Embedder
@@ -16,7 +18,9 @@ chunk_store = ChunkStore.load(INDEX_DIR / "chunks.json")
 
 entity_index = EntityIndex.load(INDEX_DIR / "entity_index.json")
 
-graph_expander = GraphExpander(INDEX_DIR / "graph_edges.json")
+graph_expander = GraphExpander.__new__(GraphExpander)
+with open(INDEX_DIR / "graph_edges.json", "r", encoding="utf-8") as f:
+    graph_expander._graph = defaultdict(list, json.load(f))
 
 retriever = Retriever(
     embedder=embedder,
