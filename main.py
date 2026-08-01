@@ -1,6 +1,7 @@
 from pathlib import Path
 from src.parser.gemini import GeminiChatParser
 from src.utils.obsidian_enricher import ObsidianEnricher
+from src.utils.graph_style_writer import GraphStyleWriter
 from src.cooccurrence.graph_exporter import GraphExporter
 from src.parser.claude import ClaudeChatParser
 from src.cooccurrence.edge_store import EdgeStore
@@ -86,6 +87,9 @@ def main():
 
     relation_writer = RelationMarkdownWriter(vault_root=VAULT_ROOT)
     relation_writer.write_relations(global_relation_store.get_relations())
+
+    graph_style_writer = GraphStyleWriter(vault_root=VAULT_ROOT)
+    graph_style_writer.apply()
 
     chunker = Chunker()
     embedder = Embedder()
