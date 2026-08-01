@@ -30,12 +30,23 @@ class RelationMarkdownWriter:
             if not source_path:
                 continue
 
-            lines = []
-            lines.append("\n## Relations\n")
+            with open(source_path, "r", encoding="utf-8") as f:
+                content = f.read()
+
+            new_lines = []
+            if "## Relations" not in content:
+                new_lines.append("\n## Relations\n")
 
             for relation in source_relations:
                 target = relation["target"]
                 relation_type = relation["relation"]
-                lines.append(f"- {relation_type} → [[{target}]]")
+                relation_line = f"- {relation_type} → [[{target}]]"
+                if relation_line in content:
+                    continue
+                new_lines.append(relation_line)
+
+            if not new_lines:
+                continue
+
             with open(source_path, "a", encoding="utf-8") as f:
-                f.write("\n".join(lines))
+                f.write("\n".join(new_lines))
