@@ -4,6 +4,7 @@ from src.utils.obsidian_enricher import ObsidianEnricher
 from src.utils.graph_style_writer import GraphStyleWriter
 from src.cooccurrence.graph_exporter import GraphExporter
 from src.parser.claude import ClaudeChatParser
+from src.parser.claude_code import ClaudeCodeChatParser
 from src.cooccurrence.edge_store import EdgeStore
 from src.relations.relation_store import RelationStore
 from src.relations.relation_exporter import RelationExporter
@@ -23,6 +24,7 @@ INDEX_DIR.mkdir(parents=True, exist_ok=True)
 CONVERSATION_PATH_GEMINI = VAULT_ROOT / "conversations" / "gemini"
 CONVERSATION_PATH_CLAUDE = VAULT_ROOT / "conversations" / "claude"
 CONVERSATION_PATH_CHATGPT = VAULT_ROOT / "conversations" / "chatgpt"
+CONVERSATION_PATH_CLAUDECODE = VAULT_ROOT / "conversations" / "claude-code"
 
 
 def process_source(parser_cls, input_file: Path, output_dir: Path, name: str, edge_store: EdgeStore, relation_store: RelationStore):
@@ -68,10 +70,19 @@ def main():
         global_relation_store,
     )
 
+    process_source(
+        ClaudeCodeChatParser,
+        Path("data/claude-code/projects"),
+        CONVERSATION_PATH_CLAUDECODE,
+        "Claude Code",
+        global_edge_store,
+        global_relation_store,
+    )
+
     edge_builder = EdgeBuilder(global_edge_store)
     relation_extractor = RelationExtractor(global_relation_store)
 
-    for conv_dir in [CONVERSATION_PATH_CHATGPT, CONVERSATION_PATH_GEMINI, CONVERSATION_PATH_CLAUDE]:
+    for conv_dir in [CONVERSATION_PATH_CHATGPT, CONVERSATION_PATH_GEMINI, CONVERSATION_PATH_CLAUDE, CONVERSATION_PATH_CLAUDECODE]:
         if conv_dir.exists():
             for md_file in find_markdown_files(conv_dir):
                 with open(md_file, "r", encoding="utf-8") as f:
@@ -98,6 +109,7 @@ def main():
     markdown_files = find_markdown_files(CONVERSATION_PATH_CHATGPT)
     markdown_files += find_markdown_files(CONVERSATION_PATH_GEMINI)
     markdown_files += find_markdown_files(CONVERSATION_PATH_CLAUDE)
+    markdown_files += find_markdown_files(CONVERSATION_PATH_CLAUDECODE)
 
     indexer.build(markdown_files=markdown_files, output_dir=INDEX_DIR)
 

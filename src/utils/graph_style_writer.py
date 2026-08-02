@@ -10,6 +10,7 @@ class GraphStyleWriter:
         {"query": 'path:"conversations/claude"', "hex": "E8833A"},
         {"query": 'path:"conversations/chatgpt"', "hex": "3FBF8F"},
         {"query": 'path:"conversations/gemini"', "hex": "E85D9E"},
+        {"query": 'path:"conversations/claude-code"', "hex": "008300"},
     ]
 
     def __init__(self, vault_root, groups=None):
