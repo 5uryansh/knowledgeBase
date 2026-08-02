@@ -1,4 +1,5 @@
-<img width="2048" height="1280" alt="image" src="https://github.com/user-attachments/assets/42969e9c-f2d6-4989-bb2e-e13a970e0eb3" />
+<img width="2560" height="1600" alt="image" src="https://github.com/user-attachments/assets/4135eb15-4075-4aad-ab37-7b867ce12e29" />
+
 
 # 🧠 KnowledgeBase
 
@@ -536,6 +537,7 @@ Future work includes:
 - Entity Canonicalization
 - Knowledge Evolution
 - Graph Analytics
+<img width="2560" height="1600" alt="Screenshot (114)" src="https://github.com/user-attachments/assets/05bcc0a2-ac1b-47d4-ab9d-e454ad891b88" />
 
 ---
 
