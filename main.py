@@ -1,6 +1,7 @@
 from pathlib import Path
 from src.parser.gemini import GeminiChatParser
 from src.utils.obsidian_enricher import ObsidianEnricher
+from src.utils.memory_guard import check_memory_or_exit
 from src.utils.graph_style_writer import GraphStyleWriter
 from src.cooccurrence.graph_exporter import GraphExporter
 from src.parser.claude import ClaudeChatParser
@@ -35,8 +36,11 @@ def process_source(parser_cls, input_file: Path, output_dir: Path, name: str, ed
 
     parser = parser_cls(input_file=input_file, output_dir=output_dir)
     parser.parse()
+    check_memory_or_exit(context=f"after parsing {name}")
+
     enricher = ObsidianEnricher(vault_dir=output_dir, edge_store=edge_store, relation_store=relation_store)
     enricher.enrich()
+    check_memory_or_exit(context=f"after enriching {name}")
 
 
 def main():

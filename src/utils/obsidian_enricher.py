@@ -7,6 +7,7 @@ from src.cooccurrence.edge_builder import EdgeBuilder
 from src.relations.relation_store import RelationStore
 from src.relations.relation_extractor import RelationExtractor
 from src.utils.mention_writer import MentionWriter
+from src.utils.memory_guard import check_memory_or_exit
 from tqdm import tqdm
 
 class ObsidianEnricher:
@@ -78,8 +79,10 @@ class ObsidianEnricher:
 
     def enrich(self):
         markdown_files, documents = self._load_markdown_files()
-        
-        for md_file, document in tqdm(zip(markdown_files, documents), total=len(markdown_files), desc="Enriching markdown files"):
+        total = len(markdown_files)
+
+        for i, (md_file, document) in enumerate(tqdm(zip(markdown_files, documents), total=total, desc="Enriching markdown files"), start=1):
+            check_memory_or_exit(context=f"before processing {md_file.name}")
             topics = self.topic_extractor.extract_topics([document])
             entities = self.entity_extractor.extract_entities(document)
 
