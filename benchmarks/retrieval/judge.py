@@ -61,6 +61,8 @@ def _format_passages(chunks) -> str:
 class Judge:
     def __init__(self) -> None:
         self._client = None
+        self._models = list(config.GEMINI_MODELS)
+        self._idx = 0   # index of the model currently in use (sticky until it fails)
         if config.GEMINI_API_KEY:
             from google import genai
             self._client = genai.Client(api_key=config.GEMINI_API_KEY)
@@ -69,29 +71,36 @@ class Judge:
     def available(self) -> bool:
         return self._client is not None
 
-    def _call(self, prompt: str) -> str:
+    def _call(self, prompt: str) -> tuple[str, str]:
+        """Return (raw_text, model_used). Rotates through the pool on failure so a
+        per-model daily quota (RPD) doesn't stall the run."""
         last_error = None
-        for attempt in range(config.JUDGE_MAX_RETRIES):
-            try:
-                response = self._client.models.generate_content(
-                    model=config.GEMINI_MODEL,
-                    contents=prompt,
-                    config={"response_mime_type": "application/json", "temperature": 0},
-                )
-                return response.text
-            except Exception as error:  # includes rate-limit / transient API errors
-                last_error = error
-                time.sleep(min(2 ** attempt, 30))
-        raise RuntimeError(f"Gemini call failed after {config.JUDGE_MAX_RETRIES} retries: {last_error}")
+        for _ in range(len(self._models)):
+            model = self._models[self._idx]
+            for attempt in range(config.JUDGE_RETRIES_PER_MODEL):
+                try:
+                    response = self._client.models.generate_content(
+                        model=model,
+                        contents=prompt,
+                        config={"response_mime_type": "application/json", "temperature": 0},
+                    )
+                    return response.text, model
+                except Exception as error:  # rate-limit / quota / transient
+                    last_error = error
+                    time.sleep(min(2 ** attempt, 8))
+            # This model is exhausted (likely daily quota) — rotate to the next.
+            self._idx = (self._idx + 1) % len(self._models)
+            print(f"    judge: rotating to next model ({self._models[self._idx]}) after: {str(last_error)[:80]}", flush=True)
+        raise RuntimeError(f"All judge models exhausted: {last_error}")
 
     def judge(self, question: str, set_a_chunks, set_b_chunks) -> dict:
-        """Return {'verdict', 'score', 'reason'} for SET A vs SET B."""
+        """Return {'verdict', 'score', 'reason', 'model'} for SET A vs SET B."""
         prompt = PROMPT_TEMPLATE.format(
             question=question,
             set_a=_format_passages(set_a_chunks),
             set_b=_format_passages(set_b_chunks),
         )
-        raw = self._call(prompt)
+        raw, model = self._call(prompt)
         try:
             parsed = json.loads(raw)
             verdict = parsed.get("verdict", "tie")
@@ -99,4 +108,4 @@ class Judge:
         except (json.JSONDecodeError, AttributeError):
             verdict, reason = "tie", f"unparseable judge response: {raw[:120]!r}"
         score = VERDICT_SCORES.get(verdict, 0)
-        return {"verdict": verdict, "score": score, "reason": reason}
+        return {"verdict": verdict, "score": score, "reason": reason, "model": model}

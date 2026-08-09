@@ -26,7 +26,19 @@ RESULTS_DIR = Path(__file__).resolve().parent / "results"
 # --- Models ----------------------------------------------------------------
 HYBRID_EMBED_MODEL = "BAAI/bge-small-en-v1.5"      # what main.py's Embedder uses
 BASELINE_EMBED_MODEL = "BAAI/bge-large-en-v1.5"    # the "just use a bigger model" baseline
-GEMINI_MODEL = "gemini-3.5-flash"
+
+# Judge model pool, ordered by preference. The judge sticks to one model until
+# it hits a limit, then rotates to the next — so free-tier daily quotas (RPD)
+# don't block the run. Lite models lead because they have far higher RPD (~500)
+# than the full Flash models (~20). Reorder/trim to taste; wrong ids self-heal
+# (they just error and rotation moves on).
+GEMINI_MODELS = [
+    "gemini-3.5-flash-lite",   # ~500 RPD
+    "gemini-3.1-flash-lite",   # ~500 RPD
+    "gemini-3.6-flash",        # ~20 RPD (fallback)
+    "gemini-3-flash",          # ~20 RPD (fallback)
+    "gemini-2.5-flash",        # ~20 RPD (fallback)
+]
 
 # --- Retrieval params ------------------------------------------------------
 TOP_K = 10
@@ -34,6 +46,6 @@ CANDIDATE_K = 50
 
 # --- Judge -----------------------------------------------------------------
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
-JUDGE_PASSAGE_CHARS = 700       # truncate each passage shown to the judge
-JUDGE_DELAY_SECONDS = 4.0       # throttle between calls (free-tier RPM limits)
-JUDGE_MAX_RETRIES = 5
+JUDGE_PASSAGE_CHARS = 700          # truncate each passage shown to the judge
+JUDGE_DELAY_SECONDS = 4.0          # throttle between calls (free-tier RPM ~15/min)
+JUDGE_RETRIES_PER_MODEL = 2        # brief retries on a model before rotating to the next

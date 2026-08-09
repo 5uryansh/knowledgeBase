@@ -4,12 +4,17 @@ Computes LLM-free structural + latency metrics for every question, and (if a
 GEMINI_API_KEY is set) a Gemini pairwise judgment with A/B-order swapping.
 Writes a timestamped JSON report and prints a readable summary.
 
+Each question's result is written durably to results/progress.jsonl as it
+completes, so an interrupted run (crash, lost connection, quota) loses nothing
+and simply resumes where it left off on the next invocation.
+
 Usage (from project root):
-    python -m benchmarks.retrieval.run [--limit N] [--no-judge] [--device cpu|cuda]
+    python -m benchmarks.retrieval.run [--limit N] [--no-judge] [--device cpu|cuda] [--fresh]
 """
 from __future__ import annotations
 import argparse
 import json
+import os
 import statistics
 import threading
 import time
@@ -94,80 +99,129 @@ def _pctl(values, p):
     return ordered[idx]
 
 
+def _load_progress(path):
+    """Return {question_id: row} for questions already completed in a prior run."""
+    done = {}
+    if not path.exists():
+        return done
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            row = json.loads(line)
+            done[row["id"]] = row
+        except (json.JSONDecodeError, KeyError):
+            continue
+    return done
+
+
+def _append_progress(handle, row):
+    """Append one result and force it to disk, so a crash can't lose it."""
+    handle.write(json.dumps(row) + "\n")
+    handle.flush()
+    os.fsync(handle.fileno())
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--limit", type=int, default=None, help="Only first N questions")
     parser.add_argument("--no-judge", action="store_true", help="Skip the Gemini judge")
     parser.add_argument("--device", default="cuda", help="Device for the baseline embedder")
+    parser.add_argument("--fresh", action="store_true", help="Ignore saved progress and start over")
     args = parser.parse_args()
 
     data = json.loads(config.QUESTIONS_PATH.read_text(encoding="utf-8"))
     questions = data["questions"][: args.limit] if args.limit else data["questions"]
     category_names = data.get("categories", {})
 
-    print("Loading hybrid retriever (bge-small + graph)...")
-    hybrid, hy_embedder, hy_vs, hy_cs = load_hybrid()
-    print(f"Loading baseline retriever ({config.BASELINE_EMBED_MODEL}) on {args.device}...")
-    baseline = load_baseline_retriever(device=args.device)
+    config.RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    progress_path = config.RESULTS_DIR / "progress.jsonl"
+    if args.fresh and progress_path.exists():
+        progress_path.unlink()
 
-    judge = None if args.no_judge else Judge()
-    judging = judge is not None and judge.available
-    print(f"Judge: {'Gemini ' + config.GEMINI_MODEL if judging else 'DISABLED (no key / --no-judge)'}\n")
+    done = _load_progress(progress_path)
+    remaining = [q for q in questions if q["id"] not in done]
+    per_question = [done[q["id"]] for q in questions if q["id"] in done]
+    if done:
+        print(f"Resuming: {len(done)} already done, {len(remaining)} remaining.\n")
 
-    sampler = PeakRSSSampler()
-    sampler.start()
+    peak_rss = 0.0
+    if remaining:
+        print("Loading hybrid retriever (bge-small + graph)...")
+        hybrid, hy_embedder, hy_vs, hy_cs = load_hybrid()
+        print(f"Loading baseline retriever ({config.BASELINE_EMBED_MODEL}) on {args.device}...")
+        baseline = load_baseline_retriever(device=args.device)
 
-    per_question = []
-    for i, q in enumerate(questions, 1):
-        qid, cat, text = q["id"], q["category"], q["question"]
+        judge = None if args.no_judge else Judge()
+        judging = judge is not None and judge.available
+        print(f"Judge: {'Gemini pool ' + str(config.GEMINI_MODELS) if judging else 'DISABLED (no key / --no-judge)'}\n")
 
-        t0 = time.time()
-        hybrid_chunks = hybrid.retrieve(text, top_k=config.TOP_K)
-        hybrid_latency = time.time() - t0
+        sampler = PeakRSSSampler()
+        sampler.start()
 
-        t0 = time.time()
-        baseline_chunks = baseline.retrieve(text, top_k=config.TOP_K)
-        baseline_latency = time.time() - t0
+        with open(progress_path, "a", encoding="utf-8") as progress_fh:
+            for i, q in enumerate(remaining, 1):
+                qid, cat, text = q["id"], q["category"], q["question"]
 
-        hybrid_semantic = _semantic_only(hy_embedder, hy_vs, hy_cs, text, config.TOP_K)
+                t0 = time.time()
+                hybrid_chunks = hybrid.retrieve(text, top_k=config.TOP_K)
+                hybrid_latency = time.time() - t0
 
-        hybrid_ids = M.ids_of(hybrid_chunks)
-        baseline_ids = M.ids_of(baseline_chunks)
+                t0 = time.time()
+                baseline_chunks = baseline.retrieve(text, top_k=config.TOP_K)
+                baseline_latency = time.time() - t0
 
-        row = {
-            "id": qid, "category": cat, "question": text,
-            "jaccard": M.jaccard(hybrid_ids, baseline_ids),
-            "hybrid_unique": M.unique_to_first(hybrid_ids, baseline_ids),
-            "hybrid_source_diversity": M.source_diversity(hybrid_chunks),
-            "baseline_source_diversity": M.source_diversity(baseline_chunks),
-            "hybrid_cross_source": M.cross_source_rate(hybrid_chunks),
-            "baseline_cross_source": M.cross_source_rate(baseline_chunks),
-            "graph_contribution": M.graph_contribution(hybrid_ids, M.ids_of(hybrid_semantic)),
-            "hybrid_latency_s": hybrid_latency,
-            "baseline_latency_s": baseline_latency,
-        }
+                hybrid_semantic = _semantic_only(hy_embedder, hy_vs, hy_cs, text, config.TOP_K)
+                hybrid_ids = M.ids_of(hybrid_chunks)
+                baseline_ids = M.ids_of(baseline_chunks)
 
-        if judging:
-            r1 = judge.judge(text, hybrid_chunks, baseline_chunks)   # A = hybrid
-            time.sleep(config.JUDGE_DELAY_SECONDS)
-            r2 = judge.judge(text, baseline_chunks, hybrid_chunks)   # A = baseline
-            time.sleep(config.JUDGE_DELAY_SECONDS)
-            hybrid_score = (r1["score"] + (-r2["score"])) / 2        # + favors hybrid
-            row["judge_score"] = hybrid_score
-            row["judge_consistent"] = _sign(r1["score"]) == _sign(-r2["score"])
-            row["judge_verdicts"] = [r1["verdict"], r2["verdict"]]
+                row = {
+                    "id": qid, "category": cat, "question": text,
+                    "jaccard": M.jaccard(hybrid_ids, baseline_ids),
+                    "hybrid_unique": M.unique_to_first(hybrid_ids, baseline_ids),
+                    "hybrid_source_diversity": M.source_diversity(hybrid_chunks),
+                    "baseline_source_diversity": M.source_diversity(baseline_chunks),
+                    "hybrid_cross_source": M.cross_source_rate(hybrid_chunks),
+                    "baseline_cross_source": M.cross_source_rate(baseline_chunks),
+                    "graph_contribution": M.graph_contribution(hybrid_ids, M.ids_of(hybrid_semantic)),
+                    "hybrid_latency_s": hybrid_latency,
+                    "baseline_latency_s": baseline_latency,
+                }
 
-        per_question.append(row)
-        print(f"[{i}/{len(questions)}] Q{qid} ({cat}) "
-              f"jac={row['jaccard']:.2f} hy_uniq={row['hybrid_unique']} "
-              f"graph+={row['graph_contribution']} "
-              f"hy_div={row['hybrid_source_diversity']} bl_div={row['baseline_source_diversity']}"
-              + (f" judge={row['judge_score']:+.1f}" if judging else ""), flush=True)
+                if judging:
+                    r1 = judge.judge(text, hybrid_chunks, baseline_chunks)   # A = hybrid
+                    time.sleep(config.JUDGE_DELAY_SECONDS)
+                    r2 = judge.judge(text, baseline_chunks, hybrid_chunks)   # A = baseline
+                    time.sleep(config.JUDGE_DELAY_SECONDS)
+                    hybrid_score = (r1["score"] + (-r2["score"])) / 2        # + favors hybrid
+                    row["judge_score"] = hybrid_score
+                    row["judge_consistent"] = _sign(r1["score"]) == _sign(-r2["score"])
+                    row["judge_verdicts"] = [r1["verdict"], r2["verdict"]]
+                    row["judge_reasons"] = [r1["reason"], r2["reason"]]
+                    row["judge_models"] = [r1["model"], r2["model"]]
 
-    peak_rss = sampler.stop()
-    report = _aggregate(per_question, category_names, judging, peak_rss)
-    _print_summary(report, judging)
+                _append_progress(progress_fh, row)   # durable before we move on
+                per_question.append(row)
+                print(f"[{i}/{len(remaining)}] Q{qid} ({cat}) "
+                      f"jac={row['jaccard']:.2f} hy_uniq={row['hybrid_unique']} "
+                      f"graph+={row['graph_contribution']} "
+                      f"hy_div={row['hybrid_source_diversity']} bl_div={row['baseline_source_diversity']}"
+                      + (f" judge={row['judge_score']:+.1f}" if judging else ""), flush=True)
+
+        peak_rss = sampler.stop()
+    else:
+        print("All questions already completed (use --fresh to redo).")
+
+    per_question.sort(key=lambda r: r["id"])
+    judging_for_agg = any("judge_score" in r for r in per_question)
+    report = _aggregate(per_question, category_names, judging_for_agg, peak_rss)
+    _print_summary(report, judging_for_agg)
     _save(report, per_question)
+
+    # Full intended set finished — clear progress so the next run starts clean.
+    if len(per_question) >= len(questions):
+        progress_path.unlink(missing_ok=True)
 
 
 def _mean(values):
@@ -206,7 +260,7 @@ def _aggregate(rows, category_names, judging, peak_rss):
         "timestamp": datetime.now().isoformat(timespec="seconds"),
         "models": {"hybrid_embed": config.HYBRID_EMBED_MODEL,
                    "baseline_embed": config.BASELINE_EMBED_MODEL,
-                   "judge": config.GEMINI_MODEL if judging else None},
+                   "judge_pool": config.GEMINI_MODELS if judging else None},
         "top_k": config.TOP_K,
         "peak_rss_mb": round(peak_rss),
         "latency": {
