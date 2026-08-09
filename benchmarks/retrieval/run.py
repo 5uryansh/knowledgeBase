@@ -23,8 +23,12 @@ from datetime import datetime
 
 from . import config
 from . import metrics as M
+from . import ir_metrics as IR
 from .baseline import load_baseline_retriever
 from .judge import Judge
+
+IR_KEYS = ["precision_at_10", "recall_at_1", "recall_at_5", "recall_at_10",
+           "hit_at_1", "hit_at_5", "hit_at_10", "mrr", "ndcg_at_5", "ndcg_at_10"]
 
 
 def _rss_mb() -> float:
@@ -190,6 +194,19 @@ def main():
                 }
 
                 if judging:
+                    # Absolute IR metrics: grade the pooled union once, score each system.
+                    pool = list({c.id: c for c in hybrid_chunks + baseline_chunks}.values())
+                    pool_grades = judge.grade_passages(text, pool)
+                    time.sleep(config.JUDGE_DELAY_SECONDS)
+                    grade_by_id = {c.id: g for c, g in zip(pool, pool_grades)}
+                    hybrid_grades = [grade_by_id.get(cid, 0) for cid in hybrid_ids]
+                    baseline_grades = [grade_by_id.get(cid, 0) for cid in baseline_ids]
+                    row["hybrid_ir"] = IR.compute(hybrid_grades, pool_grades)
+                    row["baseline_ir"] = IR.compute(baseline_grades, pool_grades)
+                    row["hybrid_grades"] = hybrid_grades
+                    row["baseline_grades"] = baseline_grades
+
+                    # Pairwise preference (A/B-swap averaged).
                     r1 = judge.judge(text, hybrid_chunks, baseline_chunks)   # A = hybrid
                     time.sleep(config.JUDGE_DELAY_SECONDS)
                     r2 = judge.judge(text, baseline_chunks, hybrid_chunks)   # A = baseline
@@ -247,6 +264,10 @@ def _aggregate(rows, category_names, judging, peak_rss):
             out["tie_rate"] = _mean([1 if s == 0 else 0 for s in scores])
             out["baseline_win_rate"] = _mean([1 if s < 0 else 0 for s in scores])
             out["judge_consistency"] = _mean([1 if r.get("judge_consistent") else 0 for r in subset if "judge_score" in r])
+            ir_rows = [r for r in subset if "hybrid_ir" in r]
+            for system in ("hybrid", "baseline"):
+                for key in IR_KEYS:
+                    out[f"{system}_{key}"] = _mean([r[f"{system}_ir"][key] for r in ir_rows])
         return out
 
     by_category = {}
@@ -290,7 +311,15 @@ def _print_summary(report, judging):
     print(f"  mean source diversity:  hybrid {o['mean_hybrid_source_diversity']:.1f}   baseline {o['mean_baseline_source_diversity']:.1f}")
     print(f"  mean cross-source rate: hybrid {o['mean_hybrid_cross_source']:.2f}   baseline {o['mean_baseline_cross_source']:.2f}")
     if judging:
-        print("\n-- LLM judge (Gemini, A/B-swap averaged) --")
+        print("\n-- Absolute quality (LLM-graded relevance; pooled recall) --")
+        print(f"  {'metric':<14} {'hybrid':>8} {'baseline':>10}")
+        for key, label in [("ndcg_at_10", "nDCG@10"), ("ndcg_at_5", "nDCG@5"),
+                           ("recall_at_10", "Recall@10"), ("recall_at_5", "Recall@5"),
+                           ("recall_at_1", "Recall@1"), ("hit_at_10", "Hit@10"),
+                           ("hit_at_1", "Hit@1"), ("mrr", "MRR"),
+                           ("precision_at_10", "Precision@10")]:
+            print(f"  {label:<14} {o['hybrid_' + key]:>8.3f} {o['baseline_' + key]:>10.3f}")
+        print("\n-- LLM judge pairwise (A/B-swap averaged) --")
         print(f"  hybrid win / tie / loss: {o['hybrid_win_rate']:.0%} / {o['tie_rate']:.0%} / {o['baseline_win_rate']:.0%}")
         print(f"  mean preference score (-2..+2, + favors hybrid): {o['mean_judge_score']:+.2f}")
         print(f"  judge consistency under swap: {o['judge_consistency']:.0%}")

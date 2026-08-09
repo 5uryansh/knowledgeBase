@@ -48,6 +48,24 @@ Respond with ONLY a JSON object:
  "reason": "<one sentence>"}}"""
 
 
+GRADE_PROMPT = """Grade how well each passage answers the QUESTION, on a 0-3 scale:
+3 = directly and fully answers the question
+2 = clearly relevant, partially answers it
+1 = marginally related
+0 = irrelevant
+
+Judge each passage on its own merit. Do not reward a passage for being long.
+
+QUESTION:
+{question}
+
+PASSAGES:
+{passages}
+
+Respond with ONLY a JSON object mapping passage number to grade, e.g.:
+{{"grades": {{"1": 3, "2": 0, "3": 2}}}}  — one integer per passage, in order."""
+
+
 def _format_passages(chunks) -> str:
     if not chunks:
         return "(no passages)"
@@ -109,3 +127,19 @@ class Judge:
             verdict, reason = "tie", f"unparseable judge response: {raw[:120]!r}"
         score = VERDICT_SCORES.get(verdict, 0)
         return {"verdict": verdict, "score": score, "reason": reason, "model": model}
+
+    def grade_passages(self, question: str, chunks) -> list[int]:
+        """Return a 0-3 relevance grade for each passage, aligned to `chunks`."""
+        if not chunks:
+            return []
+        prompt = GRADE_PROMPT.format(question=question, passages=_format_passages(chunks))
+        raw, _ = self._call(prompt)
+        grades = [0] * len(chunks)
+        try:
+            parsed = json.loads(raw).get("grades", {})
+            for i in range(len(chunks)):
+                g = parsed.get(str(i + 1), 0)
+                grades[i] = max(0, min(3, int(g)))
+        except (json.JSONDecodeError, AttributeError, ValueError, TypeError):
+            pass  # leave zeros on an unparseable response
+        return grades

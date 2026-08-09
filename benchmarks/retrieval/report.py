@@ -148,6 +148,12 @@ def build_html(data: dict) -> str:
 
     # KPI row
     kpis = []
+    if "hybrid_ndcg_at_10" in o:
+        hy, bl = o["hybrid_ndcg_at_10"], o["baseline_ndcg_at_10"]
+        kpis.append(_kpi(f'{hy:.3f}', "hybrid nDCG@10", "pos" if hy >= bl else "neg"))
+        kpis.append(_kpi(f'{bl:.3f}', "baseline nDCG@10", "pos" if bl > hy else "neg"))
+        kpis.append(_kpi(f'{o["hybrid_recall_at_10"]:.2f}/{o["baseline_recall_at_10"]:.2f}', "Recall@10 hy/bl"))
+        kpis.append(_kpi(f'{o["hybrid_mrr"]:.2f}/{o["baseline_mrr"]:.2f}', "MRR hy/bl"))
     if judged:
         kpis.append(_kpi(f'{o["hybrid_win_rate"]*100:.0f}%', "hybrid win", "pos"))
         kpis.append(_kpi(f'{o["tie_rate"]*100:.0f}%', "tie", "zero"))
@@ -159,7 +165,22 @@ def build_html(data: dict) -> str:
     lat = r["latency"]
     kpis.append(_kpi(f'{lat["hybrid_mean_s"]*1000:.0f}/{lat["baseline_mean_s"]*1000:.0f}ms', "latency hy/bl"))
 
+    has_ir = "hybrid_ndcg_at_10" in o
     charts = []
+
+    if has_ir:
+        ir_pairs = [("nDCG@10", "ndcg_at_10"), ("nDCG@5", "ndcg_at_5"),
+                    ("Recall@10", "recall_at_10"), ("Recall@5", "recall_at_5"),
+                    ("Recall@1", "recall_at_1"), ("Hit@10", "hit_at_10"),
+                    ("Hit@1", "hit_at_1"), ("MRR", "mrr"), ("Precision@10", "precision_at_10")]
+        ir_rows = [(label, o["hybrid_" + key], o["baseline_" + key]) for label, key in ir_pairs]
+        charts.append(("Absolute retrieval quality — did it return an answer? (LLM-graded, pooled recall)",
+                       _grouped_hbar(ir_rows, vmax=1.0, label_w=130)
+                       + _legend([("hybrid", "var(--hybrid)"), ("baseline", "var(--baseline)")])))
+        ndcg_cat = [(cat_labels[k], cats[k].get("hybrid_ndcg_at_10", 0), cats[k].get("baseline_ndcg_at_10", 0)) for k in order]
+        charts.append(("nDCG@10 by category (hybrid vs baseline)",
+                       _grouped_hbar(ndcg_cat, vmax=1.0) + _legend([("hybrid", "var(--hybrid)"), ("baseline", "var(--baseline)")])))
+
     if judged:
         div_rows = [(cat_labels[k], cats[k]["mean_judge_score"]) for k in order]
         charts.append(("Mean judge score by category (+ favors hybrid)",
