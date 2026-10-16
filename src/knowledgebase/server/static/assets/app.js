@@ -98,7 +98,8 @@ const Graph = ForceGraph()(mapEl)
   .nodePointerAreaPaint((n, color, ctx) => {
     ctx.fillStyle = color; ctx.beginPath(); ctx.arc(n.x, n.y, radius(n) + 3, 0, 2 * Math.PI); ctx.fill();
   })
-  .onRenderFramePre(drawTerritories)
+  .onRenderFramePre((ctx, scale) => { labelQueue = []; drawTerritories(ctx, scale); })
+  .onRenderFramePost(drawLabels)
   .onEngineStop(() => { if (fitPending) { fitPending = false; Graph.zoomToFit(ANIM, 90); } });
 let fitPending = false;
 
@@ -193,15 +194,32 @@ function drawNode(n, ctx, scale) {
     ctx.stroke();
   }
 
-  // Map lettering: always for big places and the active neighbourhood, otherwise once zoomed in.
-  const important = (n.importance || 0) / (state.maxImportance || 1) > 0.32;
-  if (isSel || inHood || onRoute || important || scale > 1.6) {
-    const size = (isSel ? 15 : important ? 13.5 : 12) / scale;
-    ctx.font = `${isSel || important ? 700 : 500} ${size}px "Barlow Semi Condensed", "Arial Narrow", sans-serif`;
-    ctx.textAlign = "center";
-    ctx.textBaseline = "top";
+  // Lettering is queued and placed after all places are drawn (see drawLabels).
+  const rel = (n.importance || 0) / (state.maxImportance || 1);
+  const priority = isSel ? 4 : onRoute ? 3 : inHood ? 2 : rel;
+  labelQueue.push({ n, r, priority, dimmed, strong: isSel || rel > 0.32 });
+  ctx.globalAlpha = 1;
+}
+
+// Map lettering, like a cartographer would place it: most important names first, and a name is
+// left out when it would collide with one already placed. Zooming in makes room for more.
+let labelQueue = [];
+function drawLabels(ctx, scale) {
+  const placed = [];
+  labelQueue.sort((a, b) => b.priority - a.priority);
+  ctx.textAlign = "center";
+  ctx.textBaseline = "top";
+  ctx.lineJoin = "round";
+  for (const { n, r, priority, dimmed, strong } of labelQueue) {
+    const size = (priority >= 4 ? 15 : strong ? 13.5 : 12) / scale;
+    ctx.font = `${strong ? 700 : 500} ${size}px "Barlow Semi Condensed", "Arial Narrow", sans-serif`;
+    const w = ctx.measureText(n.label).width;
     const y = n.y + r + 2.5 / scale;
-    ctx.lineJoin = "round";
+    const box = [n.x - w / 2 - 2 / scale, y - 1 / scale, n.x + w / 2 + 2 / scale, y + size + 1 / scale];
+    const collides = placed.some((b) => box[0] < b[2] && box[2] > b[0] && box[1] < b[3] && box[3] > b[1]);
+    if (collides && priority < 3) continue;
+    placed.push(box);
+    ctx.globalAlpha = dimmed ? 0.35 : 1;
     ctx.lineWidth = 3.4 / scale;
     ctx.strokeStyle = colors.halo;
     ctx.strokeText(n.label, n.x, y);
@@ -209,6 +227,7 @@ function drawNode(n, ctx, scale) {
     ctx.fillText(n.label, n.x, y);
   }
   ctx.globalAlpha = 1;
+  labelQueue = [];
 }
 
 function linkColor(l) {
