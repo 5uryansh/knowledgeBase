@@ -1,7 +1,11 @@
+"""Stop cleanly before the OS OOM-killer does (Linux/WSL; a no-op elsewhere)."""
+from __future__ import annotations
+
+import os
 import sys
 
 
-def _read_value_kb(path, key):
+def _read_value_kb(path: str, key: str) -> int:
     with open(path, "r") as f:
         for line in f:
             if line.startswith(key):
@@ -9,21 +13,23 @@ def _read_value_kb(path, key):
     raise ValueError(f"{key} not found in {path}")
 
 
-def current_memory_percent():
-    rss_kb = _read_value_kb("/proc/self/status", "VmRSS:")
-    total_kb = _read_value_kb("/proc/meminfo", "MemTotal:")
-    return (rss_kb / total_kb) * 100
+def current_memory_percent() -> float | None:
+    try:
+        return _read_value_kb("/proc/self/status", "VmRSS:") / _read_value_kb("/proc/meminfo", "MemTotal:") * 100
+    except (OSError, ValueError):
+        return None
 
 
-def check_memory_or_exit(max_percent=60, context=""):
-    percent_used = current_memory_percent()
-
-    if percent_used >= max_percent:
-        label = f" ({context})" if context else ""
-        print(
-            f"Memory guard{label}: process is using {percent_used:.1f}% of total RAM "
-            f"(limit {max_percent}%). Stopping now before the OS OOM-killer does. "
-            f"Rerun main.py to continue; the crashed step is where the next optimization is needed.",
-            file=sys.stderr,
-        )
-        sys.exit(1)
+def check_memory_or_exit(max_percent: float | None = None, context: str = "") -> None:
+    limit = max_percent if max_percent is not None else float(os.environ.get("KB_MAX_MEMORY_PERCENT", 60))
+    used = current_memory_percent()
+    if used is None or used < limit:
+        return
+    label = f" ({context})" if context else ""
+    print(
+        f"Memory guard{label}: process is using {used:.1f}% of total RAM (limit {limit}%). "
+        "Stopping before the OS OOM-killer does. Re-run `kb build` to continue — concept extraction is cached, "
+        "so finished conversations are not redone.",
+        file=sys.stderr,
+    )
+    sys.exit(1)

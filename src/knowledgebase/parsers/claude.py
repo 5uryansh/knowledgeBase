@@ -1,89 +1,48 @@
+"""Claude.ai export parser (``conversations.json`` from Settings → Privacy → Export data)."""
+from __future__ import annotations
+
 import json
 from pathlib import Path
-from datetime import datetime
-from collections import defaultdict
-import hashlib
+from typing import Iterator
+
+from knowledgebase.parsers.base import Conversation, Message, parse_iso
 
 
 class ClaudeChatParser:
+    platform = "claude"
 
-    def __init__(self, input_file, output_dir):
+    def __init__(self, input_file: str | Path, include_thinking: bool = False):
         self.input_file = Path(input_file)
-        self.output_dir = Path(output_dir)
-        self.output_dir.mkdir(parents=True, exist_ok=True)
+        self.include_thinking = include_thinking
 
-    def _extract_message_text(self, message):
-        parts = []
-        for content in message.get("content", []):
-            content_type = content.get("type")
-            if content_type == "text":
-                text = content.get("text", "")
-                if text.strip():
-                    parts.append(text)
-            elif content_type == "thinking":
-                thinking = content.get("thinking", "")
-                if thinking.strip():
-                    parts.append(f"\n> Claude Thinking\n>\n> {thinking}\n")
+    def _extract_message_text(self, message: dict) -> str:
+        parts: list[str] = []
+        for content in message.get("content") or []:
+            ctype = content.get("type")
+            if ctype == "text" and (content.get("text") or "").strip():
+                parts.append(content["text"])
+            elif ctype == "thinking" and self.include_thinking and (content.get("thinking") or "").strip():
+                parts.append(f"> Claude Thinking\n>\n> {content['thinking']}")
+        if not parts and (message.get("text") or "").strip():
+            parts.append(message["text"])  # older exports
         return "\n\n".join(parts).strip()
 
-    def parse(self):
-        with open(self.input_file, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        grouped_by_date = defaultdict(list)
-        sorted_data = sorted(data, key=lambda x: x.get("created_at", ""))
-
-        for conversation in sorted_data:
-            created_at = conversation.get("created_at", "")
-            date_part = "unknown-date"
-            if created_at:
-                try:
-                    dt = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
-                    date_part = dt.strftime("%Y-%m-%d")
-                except Exception:
-                    pass
-            grouped_by_date[date_part].append(conversation)
-
-        for date_part, conversations in grouped_by_date.items():
-            markdown_parts = []
-            combined_day_content = ""
-            markdown_parts.append("---")
-            markdown_parts.append("platform: claude")
-            markdown_parts.append(f"date: {date_part}")
-            markdown_parts.append("---\n")
-            markdown_parts.append(f"# Claude Export - {date_part}\n")
-
-            for conversation in conversations:
-                title = (conversation.get("name") or "untitled")
-                markdown_parts.append("\n---\n")
-                markdown_parts.append(f"# {title}\n")
-                messages = conversation.get("chat_messages", [])
-                sorted_messages = sorted(messages, key=lambda x: x.get("created_at", ""))
-                for message in sorted_messages:
-                    sender = message.get("sender", "")
-                    timestamp = message.get("created_at", "")
-                    text = self._extract_message_text(message)
-
-                    if not text.strip():
-                        continue
-
-                    if sender == "human":
-                        markdown_parts.append("\n## Prompt\n")
-                    else:
-                        markdown_parts.append("\n## Response\n")
-
-                    markdown_parts.append(text)
-                    markdown_parts.append("\n### Timestamp\n")
-                    markdown_parts.append(timestamp)
-                    combined_day_content += text
-
-            stable_hash = hashlib.sha256(combined_day_content.encode("utf-8")).hexdigest()[:6]
-            markdown_parts.insert(3, f"hash: {stable_hash}")
-
-            final_markdown = "\n".join(markdown_parts)
-            filename = (f"claude_{date_part}_{stable_hash}.md")
-            output_path = (self.output_dir / filename)
-
-            with open(output_path, "w", encoding="utf-8") as md_file:
-                md_file.write(final_markdown)
-
-        print(f"Generated markdown files: {self.output_dir}")
+    def parse(self) -> Iterator[Conversation]:
+        data = json.loads(self.input_file.read_text(encoding="utf-8"))
+        for conv in sorted(data, key=lambda c: c.get("created_at") or ""):
+            messages: list[Message] = []
+            for message in sorted(conv.get("chat_messages") or [], key=lambda m: m.get("created_at") or ""):
+                text = self._extract_message_text(message)
+                if not text:
+                    continue
+                role = "user" if message.get("sender") == "human" else "assistant"
+                messages.append(Message(role=role, text=text, timestamp=message.get("created_at") or ""))
+            if not messages:
+                continue
+            yield Conversation(
+                platform=self.platform,
+                id=str(conv.get("uuid") or conv.get("created_at")),
+                title=conv.get("name") or "untitled",
+                created_at=parse_iso(conv.get("created_at")),
+                messages=messages,
+            )

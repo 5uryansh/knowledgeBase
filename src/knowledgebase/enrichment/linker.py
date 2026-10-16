@@ -1,100 +1,82 @@
+"""Wiki-link injection: ``CUDA`` -> ``[[cuda|CUDA]]``.
+
+Matching is a longest-first lookup of token n-grams in a dictionary of known
+surface forms, so it scales to vocabularies of tens of thousands of concepts.
+It only touches prose — never code blocks, inline code, URLs or existing links —
+so it never produces nested links and is safe to re-run.
+"""
+from __future__ import annotations
+
 import re
-from pathlib import Path
-from src.utils.topic_extractor import TopicExtractor
-from src.utils.entity_extractor import EntityExtractor
-from src.cooccurrence.edge_store import EdgeStore
-from src.cooccurrence.edge_builder import EdgeBuilder
-from src.relations.relation_store import RelationStore
-from src.relations.relation_extractor import RelationExtractor
-from src.utils.mention_writer import MentionWriter
-from src.utils.memory_guard import check_memory_or_exit
-from tqdm import tqdm
+from typing import Iterable
 
-class ObsidianEnricher:
+from knowledgebase.enrichment.concepts import Concept
 
-    def __init__(self, vault_dir, edge_store=None, relation_store=None):
-        self.vault_dir = Path(vault_dir)
-        self.topic_extractor = TopicExtractor()
-        self.entity_extractor = EntityExtractor()
+_PROTECTED = re.compile(r"```.*?```|`[^`\n]*`|\[\[[^\]]*\]\]|\[[^\]]*\]\([^)]*\)|https?://\S+", re.DOTALL)
+_TOKEN = re.compile(r"[A-Za-z0-9][A-Za-z0-9+#.\-]*[A-Za-z0-9+#]|[A-Za-z0-9]")
+MAX_NGRAM = 5
 
-        self.entities_dir = self.vault_dir.parent.parent / "entities"
-        self.topics_dir = self.vault_dir.parent.parent / "topics"
 
-        self.entities_dir.mkdir(parents=True, exist_ok=True)
-        self.topics_dir.mkdir(parents=True, exist_ok=True)
+def surface_key(surface: str) -> tuple[str, ...]:
+    return tuple(t.lower() for t in _TOKEN.findall(surface))
 
-        self.edge_store = edge_store or EdgeStore()
-        self.edge_builder = EdgeBuilder(self.edge_store)
 
-        self.relation_store = (relation_store or RelationStore())
-        self.relation_extractor = RelationExtractor(self.relation_store)
-        self.mention_writer = MentionWriter(vault_root=self.vault_dir.parent.parent)
+class Linker:
+    def __init__(self, concepts: Iterable[Concept], min_surface_len: int = 3):
+        self.lookup: dict[tuple[str, ...], str] = {}
+        self.case_sensitive: dict[tuple[str, ...], set[str]] = {}
+        for concept in sorted(concepts, key=lambda c: -c.score):  # higher-scoring concept wins collisions
+            for surface in concept.surfaces | {concept.display}:
+                s = surface.strip()
+                key = surface_key(s)
+                if not key or len(key) > MAX_NGRAM:
+                    continue
+                short = len(s) <= 3
+                if len(s) < min_surface_len and not (s.isupper() and len(s) >= 2):
+                    continue
+                variants = [key]
+                last = key[-1]
+                if last.isalpha() and len(last) > 3:  # simple plural/singular variant of the head word
+                    variants.append(key[:-1] + ((last[:-1],) if last.endswith("s") else (last + "s",)))
+                for v in variants:
+                    self.lookup.setdefault(v, concept.node)
+                if short:  # "AI", "ML", "Go": require the exact casing to avoid linking ordinary words
+                    self.case_sensitive.setdefault(key, set()).add(s)
 
-    def _load_markdown_files(self):
-        markdown_files = list(
-            self.vault_dir.rglob("*.md")
-        )
-        documents = []
-        for md_file in markdown_files:
-            with open(md_file, "r", encoding="utf-8") as f:
-                documents.append(f.read())
-        return markdown_files, documents
+    def _link_prose(self, text: str) -> str:
+        if not self.lookup:
+            return text
+        tokens = list(_TOKEN.finditer(text))
+        out, cursor, i = [], 0, 0
+        while i < len(tokens):
+            matched = False
+            for n in range(min(MAX_NGRAM, len(tokens) - i), 0, -1):
+                key = tuple(t.group(0).lower() for t in tokens[i:i + n])
+                node = self.lookup.get(key)
+                if node is None:
+                    continue
+                start, end = tokens[i].start(), tokens[i + n - 1].end()
+                original = text[start:end]
+                allowed = self.case_sensitive.get(key)
+                if allowed is not None and original not in allowed:
+                    continue
+                # Only link contiguous phrases (no line breaks inside a multi-word match).
+                if "\n" in original:
+                    continue
+                out.append(text[cursor:start])
+                out.append(f"[[{node}|{original}]]")
+                cursor, i, matched = end, i + n, True
+                break
+            if not matched:
+                i += 1
+        out.append(text[cursor:])
+        return "".join(out)
 
-    def _sanitize_filename(self, text):
-        return re.sub(r'[<>:"/\\|?*]', '', text).strip()
-
-    def _create_entity_notes(self, entities):
-        for entity in entities:
-            safe_entity = self._sanitize_filename(entity["node"])
-            path = self.entities_dir / f"{safe_entity}.md"
-            if not path.exists():
-                with open(path, "w", encoding="utf-8") as f:
-                    f.write(f"# {entity['display']}\n")
-
-    def _create_topic_notes(self, topics):
-        for topic in topics:
-            safe_topic = self._sanitize_filename(topic["node"])
-            path = self.topics_dir / f"{safe_topic}.md"
-            if not path.exists():
-                with open(path, "w", encoding="utf-8") as f:
-                    f.write(f"# {topic['display']}\n")
-
-    def _inject_links(self, text, topics, entities):
-        all_links = topics + entities
-
-        for item in all_links:
-            display = item["display"]
-            node = item["node"]
-            escaped = re.escape(display)
-            pattern = rf'(?<!\[\[)\b{escaped}\b(?!\]\])'
-            replacement = (lambda m: f"[[{node}|{m.group(0)}]]")
-            text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
-        return text
-
-    def get_edges(self):
-        return self.edge_store.get_edges()
-    
-    def get_relations(self):
-        return self.relation_store.get_relations()
-
-    def enrich(self):
-        markdown_files, documents = self._load_markdown_files()
-        total = len(markdown_files)
-
-        for i, (md_file, document) in enumerate(tqdm(zip(markdown_files, documents), total=total, desc="Enriching markdown files"), start=1):
-            check_memory_or_exit(context=f"before processing {md_file.name}")
-            topics = self.topic_extractor.extract_topics([document])
-            entities = self.entity_extractor.extract_entities(document)
-
-            self._create_entity_notes(entities)
-            self._create_topic_notes(topics)
-            self.mention_writer.write_mentions(markdown_file=md_file, topics=topics, entities=entities)
-
-            with open(md_file, "r", encoding="utf-8") as f:
-                content = f.read()
-            enriched_content = self._inject_links(content, topics, entities)
-            self.edge_builder.process_document(enriched_content)
-            self.relation_extractor.process_document(enriched_content)
-
-            with open(md_file, "w", encoding="utf-8") as f:
-                f.write(enriched_content)
+    def link(self, text: str) -> str:
+        out, last = [], 0
+        for match in _PROTECTED.finditer(text):
+            out.append(self._link_prose(text[last:match.start()]))
+            out.append(match.group(0))
+            last = match.end()
+        out.append(self._link_prose(text[last:]))
+        return "".join(out)

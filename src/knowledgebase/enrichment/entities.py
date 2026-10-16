@@ -1,140 +1,134 @@
-import os
+"""Named-entity extraction backends.
 
+* ``GlinerEntityExtractor`` — zero-shot NER with GLiNER (best quality; needs the
+  model from Hugging Face the first time).
+* ``SpacyEntityExtractor`` — spaCy NER + technical-term patterns. Fully offline,
+  used automatically when GLiNER is not installed or the model can't be fetched.
+
+Both return raw ``(surface, label, weight)`` hits; canonicalisation and
+filtering happen in :mod:`knowledgebase.enrichment.concepts`.
+"""
+from __future__ import annotations
+
+import logging
 import re
-from collections import Counter
-from gliner import GLiNER
-import yaml
-from pathlib import Path
-from src.utils.text_utils import normalize_node_name
+from typing import Iterable, Protocol
+
+log = logging.getLogger(__name__)
+
+# Technical terms spaCy's news-trained NER tends to miss.
+TECH_PATTERNS = [
+    re.compile(r"\b(?:GPT|Gemma|Llama|BERT|Claude|Gemini|Mistral|Qwen|Phi|T5)[-‑ ]?\d[\w.]*\b"),  # model names + version
+    re.compile(r"\b[A-Z][a-z]+(?:[A-Z][a-z0-9]*)+\b"),  # CamelCase: PyTorch, FastAPI, GraphRAG
+    re.compile(r"\b[A-Z]{2,6}\d{0,4}\b"),  # acronyms: CUDA, FAISS, ESP32, RAG
+    re.compile(r"\b[A-Za-z][\w-]*\.(?:js|ts|py|md|io|ai|rs)\b"),  # Node.js, obsidian.md
+]
+_ACRONYM_BLOCKLIST = {
+    "I", "OK", "AM", "PM", "TV", "ID", "OS", "UI", "UX", "FAQ", "TL", "DR", "TLDR", "LOL", "OMG", "BTW",
+    "IMO", "ASAP", "FYI", "USA", "UK", "EU", "AND", "THE", "FOR", "NOT", "YES", "NO", "IT", "IS",
+}
+
+SPACY_LABELS = {
+    "PERSON": "person",
+    "ORG": "organization",
+    "GPE": "location",
+    "LOC": "location",
+    "FAC": "location",
+    "PRODUCT": "product",
+    "EVENT": "event",
+    "WORK_OF_ART": "work",
+    "NORP": "group",
+    "LANGUAGE": "language",
+    "LAW": "concept",
+}
 
 
-config_path = Path("config/stop_words.yaml")
-with open(config_path, "r") as f:
-    config = yaml.safe_load(f)
-    
-STOP_ENTITIES = config["words"]
+class EntityExtractor(Protocol):
+    name: str
+
+    def extract(self, texts: list[str]) -> list[tuple[str, str, float]]:  # pragma: no cover
+        ...
 
 
-class EntityExtractor:
-
-    def __init__(self):
-        try:
-            self.model = GLiNER.from_pretrained(
-                "urchade/gliner_small-v2.1",
-                local_files_only=True
-            )
-            print("Loaded GLiNER model from local cache")
-
-        except Exception:
-            print("GLiNER model not found locally. Downloading from Hugging Face...")
-
-            self.model = GLiNER.from_pretrained(
-                "urchade/gliner_small-v2.1"
-            )
-
-        config_path = Path("config/entity_labels.yaml")
-
-        with open(config_path, "r") as f:
-            config = yaml.safe_load(f)
-
-        self.labels = config["labels"]
-
-        self.regex_patterns = [
-            r'\b(?:GPT|Gemma|Llama|BERT)\-?[A-Za-z0-9\.]*\b',
-            r'\b[a-zA-Z_]+\.[a-zA-Z_]+\b'
-        ]
-
-    def clean_text(self, text):
-        text = re.sub(r'\[\[.*?\]\]', '', text)
-        text = re.sub(r'```.*?```', '', text, flags=re.DOTALL)
-        text = re.sub(r'`.*?`', '', text)
-        text = re.sub(r'https?://\S+', '', text)
-        text = re.sub(r'\s+', ' ', text)
-        return text.strip()
-
-    def _normalize_entity(self, entity):
-        entity = entity.strip()
-        entity = re.sub(r'\s+', ' ', entity)
-        return entity
-
-    def _valid_entity(self, entity):
-        entity = entity.strip()
-
-        if len(entity) < 3:
-            return False
-
-        if len(entity.split()) > 4:
-            return False
-
-        if entity.lower() in STOP_ENTITIES:
-            return False
-
-        if entity.isdigit():
-            return False
-
-        if not any(c.isalpha() for c in entity):
-            return False
-        
-        if entity.lower() in {
-            "uses",
-            "causes",
-            "handles",
-            "using",
-            "based",
-            "improves",
-            "results",
-            "depends",
-            "supports"
-        }:
-            return False
-
-        return True
-
-    def extract_entities(self, text):
-        text = self.clean_text(text)
-
-        entity_counter = Counter()
-
-        sentences = re.split(r'(?<=[.!?])\s+', text)
-        chunks = []
-        current_chunk = ""
-        for sentence in sentences:
-            if len(current_chunk) + len(sentence) < 1200:
-                current_chunk += " " + sentence
-            else:
-                chunks.append(current_chunk.strip())
-                current_chunk = sentence
-        if current_chunk:
-            chunks.append(current_chunk.strip())
-
-        for chunk in chunks:
-            predictions = self.model.predict_entities(chunk, self.labels)
-
-            for prediction in predictions:
-                entity = self._normalize_entity(prediction["text"])
-
-                if not self._valid_entity(entity):
-                    continue
-
-                entity_counter[entity] += 2
-
-            for pattern in self.regex_patterns:
-                matches = re.findall(pattern, chunk)
-
-                for match in matches:
-                    entity = self._normalize_entity(match)
-
-                    if not self._valid_entity(entity):
-                        continue
-
-                    entity_counter[entity] += 1
-
-        final_entities = []
-
-        for entity, count in entity_counter.most_common():
-            if count < 2:
+def tech_term_hits(text: str) -> Iterable[tuple[str, str, float]]:
+    for pattern in TECH_PATTERNS:
+        for match in pattern.findall(text):
+            if match in _ACRONYM_BLOCKLIST or match.isdigit():
                 continue
+            yield match, "technology", 1.0
 
-            final_entities.append({"display": entity, "node": normalize_node_name(entity)})
 
-        return final_entities[:50]
+class SpacyEntityExtractor:
+    name = "spacy"
+
+    def __init__(self, nlp):
+        self.nlp = nlp
+
+    def extract_from_docs(self, docs, texts: list[str]) -> list[tuple[str, str, float]]:
+        hits: list[tuple[str, str, float]] = []
+        for doc in docs:
+            for ent in doc.ents:
+                label = SPACY_LABELS.get(ent.label_)
+                if not label:
+                    continue
+                surface = ent.text.strip(" .,:;!?'\"()[]")
+                surface = re.sub(r"^(the|a|an)\s+", "", surface, flags=re.I)
+                surface = re.sub(r"'s$", "", surface)
+                if surface:
+                    hits.append((surface, label, 2.0))
+        for text in texts:
+            hits.extend(tech_term_hits(text))
+        return hits
+
+    def extract(self, texts: list[str]) -> list[tuple[str, str, float]]:
+        return self.extract_from_docs(self.nlp.pipe(texts, batch_size=32), texts)
+
+
+class GlinerEntityExtractor:
+    name = "gliner"
+
+    def __init__(self, model_name: str, labels: list[str]):
+        from gliner import GLiNER  # imported lazily: heavy, optional dependency
+
+        try:
+            self.model = GLiNER.from_pretrained(model_name, local_files_only=True)
+        except Exception:  # noqa: BLE001 - not cached yet
+            log.info("Downloading GLiNER model %s ...", model_name)
+            self.model = GLiNER.from_pretrained(model_name)
+        self.labels = labels
+
+    @staticmethod
+    def _windows(text: str, size: int = 1200) -> list[str]:
+        sentences = re.split(r"(?<=[.!?])\s+", text)
+        windows, current = [], ""
+        for sentence in sentences:
+            if len(current) + len(sentence) < size:
+                current = f"{current} {sentence}" if current else sentence
+            else:
+                if current:
+                    windows.append(current)
+                current = sentence[:size]
+        if current:
+            windows.append(current)
+        return windows
+
+    def extract(self, texts: list[str]) -> list[tuple[str, str, float]]:
+        hits: list[tuple[str, str, float]] = []
+        for text in texts:
+            for window in self._windows(text):
+                for pred in self.model.predict_entities(window, self.labels):
+                    hits.append((pred["text"].strip(), pred.get("label", "concept"), 2.0))
+            hits.extend(tech_term_hits(text))
+        return hits
+
+
+def build_entity_extractor(kind: str, nlp, gliner_model: str, labels: list[str]):
+    """Return the requested backend, falling back to spaCy when GLiNER is unavailable."""
+    if kind in ("auto", "gliner"):
+        try:
+            return GlinerEntityExtractor(gliner_model, labels)
+        except Exception as exc:  # noqa: BLE001
+            if kind == "gliner":
+                raise
+            log.warning("GLiNER unavailable (%s); falling back to spaCy NER.", exc.__class__.__name__)
+    return SpacyEntityExtractor(nlp)

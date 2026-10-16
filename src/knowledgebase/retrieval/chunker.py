@@ -1,91 +1,79 @@
-from __future__ import annotations
-import hashlib
-import re
-from pathlib import Path
-from src.retrieval.chunk import Chunk
+"""Conversation-aware chunking.
 
-# Match [[entity]] and [[entity|alias]]
-WIKILINK_PATTERN = re.compile(r"\[\[([^|\]]+)(?:\|[^\]]+)?\]\]")
+A chunk is a *question/answer pair*: the user's prompt together with the reply.
+Personal-recall queries ("where did I fix X?") usually mirror the user's own
+wording, while the answer carries the details — keeping them together beats
+chunking either side alone. Over-long pairs are split on paragraph boundaries,
+and every piece keeps the prompt's first line as context.
+"""
+from __future__ import annotations
+
+import hashlib
+
+from knowledgebase.parsers.base import Conversation
+from knowledgebase.retrieval.chunk import Chunk
+from knowledgebase.text import WIKILINK
+
+
+def _links(text: str) -> list[str]:
+    return sorted({m.group(1).strip().lower() for m in WIKILINK.finditer(text)})
 
 
 class Chunker:
-    def __init__(self, max_chars: int = 4000) -> None:
+    def __init__(self, max_chars: int = 2400) -> None:
         self.max_chars = max_chars
 
-    def chunk(self, markdown_file: Path) -> list[Chunk]:
-        text = markdown_file.read_text(encoding="utf-8")
-        sections = self._split_sections(text)
-        chunks: list[Chunk] = []
-        document_id = self._document_id(markdown_file)
-
-        chunk_index = 0
-
-        for section in sections:
-            for piece in self._split_large_section(section):
-                chunks.append(
-                    Chunk(
-                        id=f"{document_id}:{chunk_index}",
-                        text=piece,
-                        source=markdown_file,
-                        links=self._extract_links(piece),
-                        hash=self._hash(piece),
-                    )
-                )
-                chunk_index += 1
-
-        return chunks
-
-    def _split_sections(self, text: str) -> list[str]:
-        """
-        Split on level-2 headings (## ...).
-        The heading remains attached to its content.
-        """
-        matches = list(re.finditer(r"(?m)^##\s+", text))
-
-        if not matches:
-            return [text.strip()] if text.strip() else []
-
-        sections: list[str] = []
-
-        for i, match in enumerate(matches):
-            start = match.start()
-            end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
-
-            section = text[start:end].strip()
-            if section:
-                sections.append(section)
-
-        return sections
-
-    def _split_large_section(self, section: str) -> list[str]:
-        if len(section) <= self.max_chars:
-            return [section]
-
-        paragraphs = section.split("\n\n")
-
-        chunks: list[str] = []
-        current = ""
-
-        for paragraph in paragraphs:
+    def _split(self, text: str) -> list[str]:
+        if len(text) <= self.max_chars:
+            return [text]
+        pieces, current = [], ""
+        for paragraph in text.split("\n\n"):
+            while len(paragraph) > self.max_chars:  # a single giant paragraph / code block
+                head, paragraph = paragraph[: self.max_chars], paragraph[self.max_chars:]
+                if current:
+                    pieces.append(current)
+                    current = ""
+                pieces.append(head)
             if len(current) + len(paragraph) + 2 <= self.max_chars:
-                current += ("\n\n" if current else "") + paragraph
+                current = f"{current}\n\n{paragraph}" if current else paragraph
             else:
                 if current:
-                    chunks.append(current)
+                    pieces.append(current)
                 current = paragraph
-
         if current:
-            chunks.append(current)
+            pieces.append(current)
+        return pieces
 
+    def chunk_conversation(self, conversation: Conversation, linked_texts: list[str], source: str = "") -> list[Chunk]:
+        """``linked_texts[i]`` is the link-enriched text of ``conversation.messages[i]``."""
+        groups: list[tuple[int, list[str]]] = []
+        for i, (message, text) in enumerate(zip(conversation.messages, linked_texts)):
+            label = "**You:**" if message.role == "user" else "**Assistant:**"
+            block = f"{label} {text}"
+            if message.role == "user" or not groups:
+                groups.append((i, [block]))
+            else:
+                groups[-1][1].append(block)
+
+        chunks: list[Chunk] = []
+        for turn, blocks in groups:
+            body = "\n\n".join(blocks)
+            pieces = self._split(body)
+            context = blocks[0].split("\n", 1)[0][:200] if len(pieces) > 1 else ""
+            for j, piece in enumerate(pieces):
+                if j > 0 and context:
+                    piece = f"{context} …\n\n{piece}"
+                cid = f"{conversation.uid}:{turn}" + (f".{j}" if len(pieces) > 1 else "")
+                chunks.append(Chunk(
+                    id=cid,
+                    conversation_id=conversation.uid,
+                    title=conversation.title,
+                    platform=conversation.platform,
+                    date=conversation.date,
+                    turn=turn,
+                    text=piece,
+                    links=_links(piece),
+                    source=source,
+                    hash=hashlib.sha1(piece.encode("utf-8")).hexdigest()[:16],
+                ))
         return chunks
-
-    def _extract_links(self, text: str) -> list[str]:
-        return sorted(set(WIKILINK_PATTERN.findall(text)))
-
-    @staticmethod
-    def _hash(text: str) -> str:
-        return hashlib.sha256(text.encode()).hexdigest()
-
-    @staticmethod
-    def _document_id(path: Path) -> str:
-        return hashlib.sha1(str(path).encode()).hexdigest()[:12]

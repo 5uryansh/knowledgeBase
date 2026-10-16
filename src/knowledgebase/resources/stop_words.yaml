@@ -41,13 +41,53 @@ words:
   - chat
   - conversation
   - session
+  # chat fillers / interjections (spaCy often tags these as names or nouns)
+  - thanks
+  - thank
+  - thank you
+  - glad
+  - awesome
+  - congrats
+  - congratulations
+  - wow
+  - nah
+  - wanna
+  - gonna
+  - gotta
+  - cool
+  - great
+  - amazing
+  - nice
+  - haha
+  - lol
+  - sorry
+  - hope
+  - bye
+  - cheers
+  - hello
+  - kinda
+  - sorta
+  - ya
+  - yep
+  - nope
+  - omg
+  - fyi
+  - btw
+  - good
+  - bad
+  - best
+  - fun
+  - pic
+  - picture
+  - photo
+  - photos
   # pronouns / fillers
   - the
   - this
   - that
   - what
   - hey
-  - yes
+  - "yes"
   - you
   - they
   - for

@@ -1,4 +1,13 @@
-.venv
-/data
-__pycache__
+.venv/
+__pycache__/
+*.pyc
 *.log
+*.egg-info/
+.pytest_cache/
+/data/
+/vault/
+kb.yaml
+benchmarks/.work/
+benchmarks/data/
+benchmarks/results/*_smoke.*
+node_modules/
