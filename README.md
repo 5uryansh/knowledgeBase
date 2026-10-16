@@ -219,7 +219,8 @@ tests/            pytest suite (parsers, linker, graph, retrieval, pipeline, RES
 
 ### Configuration
 
-Everything works without configuration. To customise, create `kb.yaml`:
+Everything works without configuration. To customise, copy `kb.example.yaml` to `kb.yaml`
+(`python main.py` still works too — it is the same as `kb build`):
 
 ```yaml
 vault_dir: ~/Documents/KnowledgeBase     # open this folder in Obsidian

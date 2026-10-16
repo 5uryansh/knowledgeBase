@@ -42,7 +42,8 @@ class ClaudeCodeChatParser:
                     continue
                 if entry.get("type") == "summary" and entry.get("summary"):
                     summary = entry["summary"]
-                if entry.get("type") not in ("user", "assistant") or entry.get("isMeta"):
+                # Skip meta entries and sub-agent "sidechains" (agent-internal turns, not your conversation).
+                if entry.get("type") not in ("user", "assistant") or entry.get("isMeta") or entry.get("isSidechain"):
                     continue
                 text = self._extract_text(entry)
                 if not text or text.startswith(("<command-", "<local-command", "Caveat:")):
