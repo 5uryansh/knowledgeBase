@@ -62,7 +62,7 @@ are in [`results/`](results/).
 
 | mode | R@5 | R@10 | R@20 | complete@10 | MRR | nDCG@10 |
 |---|---|---|---|---|---|---|
-| **graph_hybrid** | **0.657** | **0.736** | **0.799** | **0.676** | 0.561 | **0.580** |
+| **graph_hybrid** | **0.674** | **0.756** | **0.818** | **0.696** | **0.578** | **0.598** |
 | hybrid | 0.657 | 0.713 | 0.770 | 0.652 | 0.563 | 0.574 |
 | bm25 | 0.638 | 0.718 | 0.762 | 0.659 | 0.568 | 0.579 |
 | graph | 0.478 | 0.576 | 0.666 | 0.531 | 0.379 | 0.406 |
@@ -73,7 +73,7 @@ Recall@10 by question type:
 
 | mode | single-hop | multi-hop | temporal | open-domain |
 |---|---|---|---|---|
-| **graph_hybrid** | **0.868** | **0.467** | **0.734** | **0.357** |
+| **graph_hybrid** | **0.897** | **0.461** | **0.754** | **0.367** |
 | hybrid | 0.838 | 0.441 | 0.731 | 0.333 |
 | bm25 | 0.850 | 0.435 | 0.730 | 0.333 |
 | legacy (v0.1) | 0.630 | 0.305 | 0.591 | 0.263 |
@@ -87,8 +87,11 @@ What we learned on the way (dev split):
   the walk.
 * Static embeddings are a weak signal on this data, so fusion gives them a lower weight (`w_dense=0.25` for
   WordLlama; transformer embedders keep 1.0).
-* Diversifying the top-k across conversations and semantic concept seeding with static embeddings both
-  *hurt* and are off by default.
+* A conversation-level prior (each chunk inherits the BM25 score of its whole conversation) added ~2 points
+  of Recall@10 and MRR on both splits — evidence clusters inside sessions.
+* Diversifying the top-k across conversations, graph-based query expansion (re-running BM25 with the
+  labels of activated concepts) and semantic concept seeding with static embeddings all *hurt* on dev and
+  are off by default (`max_per_conversation`, `w_expansion`, `semantic_seeds`).
 
 ## Run it
 

@@ -53,6 +53,8 @@ class KnowledgeIndex:
         self.graph_retriever = GraphRetriever(graph, chunks, graph_config, concept_vectors)
         self.retriever = HybridRetriever(self, fusion)
         self._by_conversation: dict[str, list[int]] | None = None
+        self._conv_bm25: BM25Index | None = None
+        self._conv_ids: list[str] = []
         self._by_concept: dict[str, list[int]] | None = None
 
     # ------------------------------------------------------------------ lookups
@@ -74,6 +76,20 @@ class KnowledgeIndex:
                     d[link].append(i)
             self._by_concept = dict(d)
         return self._by_concept
+
+    def conversation_prior(self, query: str) -> np.ndarray:
+        """Per-chunk score = BM25 score of the chunk's whole conversation (+ a tiny chunk-level tiebreak)."""
+        if self._conv_bm25 is None:
+            ids = list(self.by_conversation)
+            self._conv_ids = ids
+            self._conv_bm25 = BM25Index().fit(
+                [" ".join(self.chunks[i].search_text for i in self.by_conversation[c]) for c in ids])
+        conv_scores = self._conv_bm25.scores(query)
+        per_chunk = np.zeros(len(self.chunks), dtype=np.float32)
+        for score, cid in zip(conv_scores, self._conv_ids):
+            if score > 0:
+                per_chunk[self.by_conversation[cid]] = score
+        return per_chunk + 1e-3 * self.bm25.scores(query)
 
     def search(self, query: str, k: int = 10, mode: str = "graph_hybrid"):
         return self.retriever.search(query, k=k, mode=mode)

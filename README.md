@@ -159,8 +159,9 @@ The retrieval graph joins concepts and chunks:
 (adjacent turns). A query activates seed concepts — the ones it names, plus those in the best BM25/dense
 hits — and **Personalized PageRank** spreads that activation through the graph (the HippoRAG idea). A chunk
 can therefore rank highly because it is *connected* to the question, not only because it shares words with
-it. The three rankings are fused with weighted reciprocal-rank fusion, and every result reports which
-concepts connected it (`via`).
+it. The graph ranking is fused with BM25, dense and a conversation-level prior (chunks inherit the score of
+their whole conversation) using weighted reciprocal-rank fusion, and every result reports which concepts
+connected it (`via`).
 
 ---
 
@@ -174,7 +175,7 @@ questions)**.
 
 | retrieval | Recall@5 | Recall@10 | Recall@20 | MRR | nDCG@10 | multi-hop R@10 |
 |---|---|---|---|---|---|---|
-| **graph + hybrid (default)** | **0.657** | **0.736** | **0.799** | 0.561 | **0.580** | **0.467** |
+| **graph + hybrid (default)** | **0.674** | **0.756** | **0.818** | **0.578** | **0.598** | **0.461** |
 | BM25 + dense (hybrid) | 0.657 | 0.713 | 0.770 | 0.563 | 0.574 | 0.441 |
 | BM25 | 0.638 | 0.718 | 0.762 | 0.568 | 0.579 | 0.435 |
 | graph only (PPR) | 0.478 | 0.576 | 0.666 | 0.379 | 0.406 | 0.318 |

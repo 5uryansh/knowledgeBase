@@ -32,6 +32,11 @@ class FusionConfig:
     first_stage_k: int = 5  # first-stage hits that seed the graph walk
     candidates: int = 200
     max_per_conversation: int = 0  # >0: diversify top-k across conversations (0 = off)
+    # Graph-based query expansion: BM25 re-run with the labels of the concepts the walk activated.
+    w_expansion: float = 0.0
+    expansion_concepts: int = 5
+    # Conversation prior: chunks inherit the BM25 score of their whole conversation.
+    w_conversation: float = 0.5  # tuned on dev; +2 pts Recall@10 on test
 
     @classmethod
     def for_embedder(cls, embedder_name: str | None) -> "FusionConfig":
@@ -97,6 +102,19 @@ class HybridRetriever:
             return None
         return self.index.vectors.scores(qvec)
 
+    def _expansion_terms(self, concept_scores: np.ndarray, query_concepts: dict[str, float], n: int) -> list[str]:
+        gr = self.index.graph_retriever
+        order = np.argsort(-concept_scores)
+        labels = []
+        for i in order[: n * 4]:
+            node = gr.concepts[i]
+            if gr.hub[i] or node in query_concepts or concept_scores[i] <= 0:
+                continue
+            labels.append(self.index.graph.nodes[node]["label"])
+            if len(labels) >= n:
+                break
+        return labels
+
     def _rrf(self, rankings: list[tuple[list[int], float]]) -> dict[int, float]:
         fused: dict[int, float] = {}
         for ranking, weight in rankings:
@@ -129,10 +147,18 @@ class HybridRetriever:
                 fs = self._rrf([(signals.get("bm25", []), f.w_bm25), (signals.get("dense", []), f.w_dense)])
                 top = sorted(fs.items(), key=lambda t: -t[1])[: f.first_stage_k]
                 first_stage = [(i, s) for i, s in top]
-            chunk_scores, concept_scores, _ = self.index.graph_retriever.score(query, first_stage, qvec)
+            chunk_scores, concept_scores, query_concepts = self.index.graph_retriever.score(query, first_stage, qvec)
             signals["graph"] = _ranking(chunk_scores, f.candidates)
+            if mode == "graph_hybrid" and f.w_expansion > 0:
+                expansion = self._expansion_terms(concept_scores, query_concepts, f.expansion_concepts)
+                if expansion:
+                    signals["expansion"] = _ranking(self._bm25(query + " " + " ".join(expansion)), f.candidates)
 
-        weights = {"bm25": f.w_bm25, "dense": f.w_dense, "graph": f.w_graph}
+        if mode == "graph_hybrid" and f.w_conversation > 0:
+            signals["conversation"] = _ranking(self.index.conversation_prior(query), f.candidates)
+
+        weights = {"bm25": f.w_bm25, "dense": f.w_dense, "graph": f.w_graph, "expansion": f.w_expansion,
+                   "conversation": f.w_conversation}
         if len(signals) == 1:
             (name, ranking), = signals.items()
             fused = {i: 1.0 / (f.rrf_k + r + 1) for r, i in enumerate(ranking)}
