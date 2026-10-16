@@ -13,7 +13,8 @@ from typing import Iterable
 from knowledgebase.enrichment.concepts import Concept
 
 _PROTECTED = re.compile(r"```.*?```|`[^`\n]*`|\[\[[^\]]*\]\]|\[[^\]]*\]\([^)]*\)|https?://\S+", re.DOTALL)
-_TOKEN = re.compile(r"[A-Za-z0-9][A-Za-z0-9+#.\-]*[A-Za-z0-9+#]|[A-Za-z0-9]")
+# Underscores are word characters here so identifiers like esp_sleep_enable_timer_wakeup stay one token.
+_TOKEN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_+#.\-]*[A-Za-z0-9+#]|[A-Za-z0-9]")
 MAX_NGRAM = 5
 
 

@@ -17,7 +17,7 @@ from knowledgebase.config import Settings
 from knowledgebase.enrichment.concepts import Concept, ConceptExtractor
 from knowledgebase.enrichment.linker import Linker
 from knowledgebase.enrichment.obsidian_style import ObsidianGraphStyle
-from knowledgebase.enrichment.vault import VaultWriter, conversation_relpath
+from knowledgebase.enrichment.vault import VaultWriter, conversation_relpath, notable
 from knowledgebase.enrichment.vocabulary import ConceptVocabulary
 from knowledgebase.graph.analytics import compute_analytics
 from knowledgebase.graph.cooccurrence import CooccurrenceBuilder
@@ -268,7 +268,8 @@ def build(
 
     if write_vault:
         writer = VaultWriter(vault)
-        writer.write_conversations([(c, linked_by_conv[c.uid]) for c in convs])
+        keep = {n for n, node in graph.nodes.items() if notable(node)}
+        writer.write_conversations([(c, linked_by_conv[c.uid]) for c in convs], keep=keep)
         mentions: dict[str, list[tuple[str, str, str]]] = defaultdict(list)
         for c in convs:
             rel = conversation_relpath(c)
