@@ -147,7 +147,12 @@ class HybridRetriever:
                 fs = self._rrf([(signals.get("bm25", []), f.w_bm25), (signals.get("dense", []), f.w_dense)])
                 top = sorted(fs.items(), key=lambda t: -t[1])[: f.first_stage_k]
                 first_stage = [(i, s) for i, s in top]
-            chunk_scores, concept_scores, query_concepts = self.index.graph_retriever.score(query, first_stage, qvec)
+            gr = self.index.graph_retriever
+            term_vectors = None
+            if gr.cfg.term_seeds > 0 and self.index.embedder is not None and gr.concept_vectors is not None:
+                terms = gr.query_terms(query)
+                term_vectors = self.index.embedder.embed(terms) if terms else None
+            chunk_scores, concept_scores, query_concepts = gr.score(query, first_stage, qvec, term_vectors)
             signals["graph"] = _ranking(chunk_scores, f.candidates)
             if mode == "graph_hybrid" and f.w_expansion > 0:
                 expansion = self._expansion_terms(concept_scores, query_concepts, f.expansion_concepts)

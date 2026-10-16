@@ -55,6 +55,12 @@ class GraphRetrieverConfig:
     semantic_seeds: int = 0
     semantic_seed_weight: float = 0.5
     semantic_min_sim: float = 0.35
+    # Term-level semantic seeds: every content word of the query activates the concepts whose label
+    # is closest to it ("instrument" -> violin, clarinet), which is how category questions reach
+    # instances that never mention the category word.
+    term_seeds: int = 0
+    term_seed_weight: float = 0.5
+    term_min_sim: float = 0.5
 
 
 def _surface_key(text: str) -> tuple[str, ...]:
@@ -154,8 +160,15 @@ class GraphRetriever:
         self.hub = df > max(5.0, self.cfg.hub_df_ratio * nk)
 
     # ------------------------------------------------------------------ query
+    def query_terms(self, query: str) -> list[str]:
+        """Content words of the query that did not already match a concept (or matched only a hub)."""
+        words = [w for w in _WORD.findall(query.lower()) if w not in STOPWORDS and len(w) >= 3 and w.isalpha()]
+        hubs = {self.concepts[i] for i in np.flatnonzero(self.hub)}
+        return [w for w in dict.fromkeys(words) if w not in hubs and stem(w) not in hubs]
+
     def seeds(self, query: str, first_stage: list[tuple[int, float]] | None = None,
-              query_vector: np.ndarray | None = None) -> tuple[np.ndarray, dict[str, float]]:
+              query_vector: np.ndarray | None = None,
+              term_vectors: np.ndarray | None = None) -> tuple[np.ndarray, dict[str, float]]:
         nc = self.n_concepts
         s = np.zeros(nc + self.n_chunks, dtype=np.float64)
         matched = self.matcher.match(query)
@@ -178,6 +191,18 @@ class GraphRetriever:
                 s[i] += w
                 node = self.concepts[i]
                 query_concepts[node] = query_concepts.get(node, 0.0) + w
+        if term_vectors is not None and len(term_vectors) and self.concept_vectors is not None and self.cfg.term_seeds > 0:
+            sims = term_vectors.astype(np.float32) @ self.concept_vectors.T  # terms x concepts
+            m = min(self.cfg.term_seeds, nc)
+            for row in sims:
+                for i in np.argpartition(-row, m - 1)[:m]:
+                    sim = float(row[i])
+                    if sim < self.cfg.term_min_sim or self.hub[i]:
+                        continue
+                    w = self.cfg.term_seed_weight * sim * float(self.idf[i])
+                    s[i] += w
+                    node = self.concepts[i]
+                    query_concepts[node] = query_concepts.get(node, 0.0) + w
         if first_stage:
             for rank, (k, _score) in enumerate(first_stage):
                 w = 1.0 / (rank + 1)
@@ -203,9 +228,10 @@ class GraphRetriever:
         return r
 
     def score(self, query: str, first_stage: list[tuple[int, float]] | None = None,
-              query_vector: np.ndarray | None = None) -> tuple[np.ndarray, np.ndarray, dict[str, float]]:
+              query_vector: np.ndarray | None = None,
+              term_vectors: np.ndarray | None = None) -> tuple[np.ndarray, np.ndarray, dict[str, float]]:
         """Returns (chunk scores, concept scores, query concepts)."""
-        seed, query_concepts = self.seeds(query, first_stage, query_vector)
+        seed, query_concepts = self.seeds(query, first_stage, query_vector, term_vectors)
         r = self.personalized_pagerank(seed)
         return r[self.n_concepts:], r[: self.n_concepts], query_concepts
 

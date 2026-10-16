@@ -180,12 +180,12 @@ questions)**.
 
 | retrieval | Recall@5 | Recall@10 | Recall@20 | MRR | nDCG@10 | multi-hop R@10 |
 |---|---|---|---|---|---|---|
-| **graph + hybrid (default)** | **0.674** | **0.756** | **0.818** | **0.578** | **0.598** | **0.461** |
-| BM25 + dense (hybrid) | 0.657 | 0.713 | 0.770 | 0.563 | 0.574 | 0.441 |
+| **graph + hybrid (default)** | **0.673** | **0.755** | **0.817** | **0.578** | **0.598** | **0.459** |
+| BM25 + dense (hybrid) | 0.656 | 0.715 | 0.770 | 0.561 | 0.574 | 0.443 |
 | BM25 | 0.638 | 0.718 | 0.762 | 0.568 | 0.579 | 0.435 |
-| graph only (PPR) | 0.478 | 0.576 | 0.666 | 0.379 | 0.406 | 0.318 |
-| dense only | 0.465 | 0.540 | 0.636 | 0.399 | 0.409 | 0.305 |
-| previous retriever (v0.1) | 0.465 | 0.540 | 0.563 | 0.397 | 0.409 | 0.305 |
+| graph only (PPR) | 0.470 | 0.564 | 0.653 | 0.371 | 0.398 | 0.304 |
+| dense only | 0.463 | 0.538 | 0.633 | 0.397 | 0.407 | 0.304 |
+| previous retriever (v0.1) | 0.463 | 0.538 | 0.561 | 0.394 | 0.407 | 0.304 |
 
 <sub>Embeddings: WordLlama (the `lite` backend), entities: spaCy — the benchmark environment could not
 download transformer models. With `bge-small` dense retrieval is considerably stronger; re-run the benchmark
