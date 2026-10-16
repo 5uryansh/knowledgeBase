@@ -135,7 +135,7 @@ class VaultWriter:
             generated = "\n".join(block)
             if path.exists():
                 existing = path.read_text(encoding="utf-8")
-                content = _GENERATED.sub(lambda _m: generated, existing) if START in existing else \
+                content = _GENERATED.sub(lambda _m, g=generated: g, existing) if START in existing else \
                     existing.rstrip() + "\n\n" + generated + "\n"
             else:
                 content = f"# {node['label']}\n\n{generated}\n"

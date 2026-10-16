@@ -86,7 +86,7 @@ def create_app(index_dir: Path, embedder: str = "auto", embed_model: str | None 
         try:
             return service.search(q, k=k, mode=mode)
         except ValueError as exc:
-            raise HTTPException(400, str(exc))
+            raise HTTPException(400, str(exc)) from exc
 
     @app.get("/api/discover")
     def discover():

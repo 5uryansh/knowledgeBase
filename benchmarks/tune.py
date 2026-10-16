@@ -19,7 +19,6 @@ from knowledgebase.config import Settings
 from knowledgebase.enrichment.concepts import ConceptExtractor
 from knowledgebase.retrieval.embedders import build_embedder
 from knowledgebase.retrieval.graph_retriever import GraphRetrieverConfig
-from knowledgebase.retrieval.index import KnowledgeIndex
 from knowledgebase.retrieval.retriever import FusionConfig
 
 SPACE = {
