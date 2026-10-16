@@ -566,6 +566,9 @@ function renderConcept(d) {
       <span class="row-title">${esc(m.title)}</span>
       <span class="row-meta">${esc(platformName(m.platform))}, ${esc(fmtDate(m.date))}${m.count > 1 ? `, ${m.count} passages` : ""}</span>
       <p class="row-snippet">${esc(m.snippet)}</p></button></li>`).join("");
+  const worth = (d.worth_connecting || []).map((w) => `<li><button type="button" class="row-btn" data-route="${esc(n.id)}|${esc(w.id)}">
+      <span class="row-title"><span class="swatch" style="background:${regionTint(w.community)}"></span>${esc(w.label)}</span>
+      <span class="row-meta">both linked to ${esc(w.via.map((v) => v.label).join(", "))}</span></button></li>`).join("");
   showPanel(`${backButton()}
     <h1>${esc(n.label)}</h1>
     <p class="lede">${esc(cap(kind))}, discussed in ${n.conversation_count} conversation${n.conversation_count === 1 ? "" : "s"}${esc(span)}.</p>
@@ -573,6 +576,7 @@ function renderConcept(d) {
     ${timelineHtml(d.timeline)}
     ${neighbours ? `<h2>Connected to</h2><ul class="rows">${neighbours}</ul>` : `<p class="muted">No connections yet.</p>`}
     ${relations ? `<h2>How they relate</h2>${relations}` : ""}
+    ${worth && !STATIC ? `<h2>Worth connecting</h2><p class="explain muted">Never discussed together with ${esc(n.label)}, but they share several neighbours.</p><ul class="rows">${worth}</ul>` : ""}
     ${mentions ? `<h2>Where you discussed it</h2><ul class="rows">${mentions}</ul>` : ""}`);
 }
 

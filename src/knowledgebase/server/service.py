@@ -159,6 +159,33 @@ class KnowledgeService:
             months[c.date[:7]] += 1
         return [{"month": m, "conversations": n} for m, n in sorted(months.items())]
 
+    def worth_connecting(self, node_id: str, limit: int = 6, min_specificity: float = 0.45) -> list[dict]:
+        """Concepts never mentioned together with ``node_id`` that share many strong neighbours with it
+        (Adamic–Adar over the 2-hop neighbourhood) — ideas you may not have connected yet."""
+        import math
+
+        g = self.graph
+        adj = g.adjacency
+        direct = {o for o, _ in adj.get(node_id, [])}
+        scores: dict[str, float] = defaultdict(float)
+        via: dict[str, list[str]] = defaultdict(list)
+        for mid, e1 in adj.get(node_id, [])[:30]:
+            if e1.get("strength", 0) <= 0:
+                continue
+            deg = len(adj.get(mid, []))
+            weight = 1.0 / math.log(deg + 1.5)
+            for other, e2 in adj.get(mid, [])[:20]:
+                if other == node_id or other in direct or e2.get("strength", 0) <= 0:
+                    continue
+                node = g.nodes.get(other)
+                if not node or node.get("specificity", 1.0) < min_specificity or node.get("conversation_count", 0) < 2:
+                    continue
+                scores[other] += weight
+                via[other].append(mid)
+        ranked = sorted((o for o in scores if len(via[o]) >= 2), key=lambda o: -scores[o])[:limit]
+        return [{**self.node_summary(o), "score": round(scores[o], 4),
+                 "via": [{"id": m, "label": g.nodes[m]["label"]} for m in via[o][:3]]} for o in ranked]
+
     def node_detail(self, concept: str, limit: int = 25) -> dict:
         node_id = self.resolve(concept)
         g = self.graph
@@ -187,6 +214,7 @@ class KnowledgeService:
             "relations": relations[:50],
             "mentions": self.mentions(node_id),
             "timeline": self.timeline(node_id),
+            "worth_connecting": self.worth_connecting(node_id),
         }
 
     # ------------------------------------------------------------------ paths & discovery

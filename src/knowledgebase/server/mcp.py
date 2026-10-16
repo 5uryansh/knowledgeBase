@@ -160,6 +160,10 @@ def _fmt_concept(d: dict) -> str:
         for r in d["relations"][:15]:
             ev = f' — "{r["evidence"][0]}"' if r.get("evidence") else ""
             lines.append(f"- {r['source_label']} {r['relation']} {r['target_label']}{ev}")
+    if d.get("worth_connecting"):
+        lines.append("\n## Worth connecting (never discussed together, many shared neighbours)")
+        for w in d["worth_connecting"]:
+            lines.append(f"- {w['label']} via {', '.join(v['label'] for v in w['via'])}")
     if d["mentions"]:
         lines.append("\n## Conversations")
         for m in d["mentions"][:12]:

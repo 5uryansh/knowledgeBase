@@ -39,6 +39,7 @@ def test_node_detail(client):
     d = client.get("/api/graph/node/ESP32").json()  # labels resolve to ids
     assert d["node"]["id"] == "esp32"
     assert d["neighbors"] and d["mentions"] and d["timeline"]
+    assert "worth_connecting" in d
     assert client.get("/api/graph/node/definitely-not-a-concept-xyz").status_code == 404
 
 

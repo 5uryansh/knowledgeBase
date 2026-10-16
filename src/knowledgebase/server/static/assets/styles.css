@@ -221,7 +221,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
 .wikilink { border: 0; background: none; padding: 0; color: var(--select); text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 2px; font: inherit; }
 
 .discovery h2:first-of-type { margin-top: 14px; }
-.discovery .explain { margin: -2px 0 6px; color: var(--ink-soft); font-size: 15px; }
+.discovery .explain, .panel .explain { margin: -2px 0 6px; color: var(--ink-soft); font-size: 15px; }
 .path { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin-top: 10px; font-weight: 600; }
 .path .hop { color: var(--survey); }
 .muted { color: var(--ink-soft); }
