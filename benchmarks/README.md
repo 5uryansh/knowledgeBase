@@ -105,6 +105,26 @@ editing code.
 
 ## Benchmark your own history
 
+### Without labels: LLM judge (`judged.py`)
+
+`benchmarks/questions.json` holds 100 real questions about your own chats (from PR #9). No evidence labels
+are needed: an LLM grades every retrieved passage 0–3 and the script reports graded **nDCG@10**,
+**precision@10** (grade ≥ 2), **answerable@10** (some passage fully answers) and a head-to-head
+**pairwise** comparison of two modes (asked twice with the order swapped to cancel position bias).
+
+```bash
+kb build                                   # index your real exports first
+export GEMINI_API_KEY=...                  # rotates through flash-lite models to survive free-tier quotas
+#   or any OpenAI-compatible endpoint (OpenAI, vLLM, Ollama, a Hugging Face Space):
+export KB_JUDGE_BASE_URL=https://<host>/v1 KB_JUDGE_MODEL=<model> KB_JUDGE_API_KEY=...
+python -m benchmarks.judged --vault ~/Documents/KnowledgeBase --delay 4
+```
+
+Grades are cached per (question, passage), so modes that retrieve the same passage are graded once and an
+interrupted run resumes for free.
+
+### With labels
+
 The most useful benchmark is your own. Write 30–50 questions **from memory, the way you would actually
 search** (copying wording from the chats makes every method look good), each labelled with the conversation
 title(s) that answer it, in the format of `examples/sample_queries.jsonl`. Mix exact names ("GxEPD2"),
