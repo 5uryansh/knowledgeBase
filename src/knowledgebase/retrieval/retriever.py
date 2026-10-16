@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from knowledgebase.retrieval.chunk import Chunk
+from knowledgebase.retrieval.timefilter import parse_time_window
 
 MODES = ("bm25", "dense", "hybrid", "graph", "graph_hybrid")
 
@@ -37,6 +38,9 @@ class FusionConfig:
     expansion_concepts: int = 5
     # Conversation prior: chunks inherit the BM25 score of their whole conversation.
     w_conversation: float = 0.5  # tuned on dev; +2 pts Recall@10 on test
+    # Time hints ("in June", "last spring"): fused scores of chunks inside the window are multiplied
+    # by (1 + time_boost). Soft on purpose — people misremember dates.
+    time_boost: float = 1.0  # dev: +8 pts R@10 on time-hinted questions; test: +1 pt (n=153)
 
     @classmethod
     def for_embedder(cls, embedder_name: str | None) -> "FusionConfig":
@@ -87,6 +91,8 @@ class HybridRetriever:
     def __init__(self, index, fusion: FusionConfig | None = None):
         self.index = index
         self.fusion = fusion or FusionConfig.for_embedder(index.embedder.name if index.embedder else None)
+        self.today = None  # None = date.today(); fixed in tests/benchmarks for reproducibility
+        self.last_time_window = None
 
     # ------------------------------------------------------------------ signals
     def _bm25(self, query: str) -> np.ndarray:
@@ -171,6 +177,10 @@ class HybridRetriever:
             fused = self._rrf([(ranking, weights[name]) for name, ranking in signals.items()])
 
         rank_of = {name: {i: r + 1 for r, i in enumerate(ranking)} for name, ranking in signals.items()}
+        self.last_time_window = parse_time_window(query, self.today) if f.time_boost > 0 else None
+        if self.last_time_window is not None:
+            matches = self.last_time_window.matches
+            fused = {i: s * (1 + f.time_boost) if matches(self.index.chunks[i].date) else s for i, s in fused.items()}
         ordered = sorted(fused.items(), key=lambda t: -t[1])
         if f.max_per_conversation > 0:
             per_conv: dict[str, int] = {}

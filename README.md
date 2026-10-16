@@ -173,8 +173,9 @@ The retrieval graph joins concepts and chunks:
 hits — and **Personalized PageRank** spreads that activation through the graph (the HippoRAG idea). A chunk
 can therefore rank highly because it is *connected* to the question, not only because it shares words with
 it. The graph ranking is fused with BM25, dense and a conversation-level prior (chunks inherit the score of
-their whole conversation) using weighted reciprocal-rank fusion, and every result reports which concepts
-connected it (`via`).
+their whole conversation) using weighted reciprocal-rank fusion; time hints in the question ("in March",
+"last spring", "two months ago") softly favour conversations from that window. Every result reports which
+concepts connected it (`via`).
 
 ---
 
@@ -188,11 +189,11 @@ questions)**.
 
 | retrieval | Recall@5 | Recall@10 | Recall@20 | MRR | nDCG@10 | multi-hop R@10 |
 |---|---|---|---|---|---|---|
-| **graph + hybrid (default)** | **0.673** | **0.755** | **0.817** | **0.578** | **0.598** | **0.459** |
-| BM25 + dense (hybrid) | 0.656 | 0.715 | 0.770 | 0.561 | 0.574 | 0.443 |
-| BM25 | 0.638 | 0.718 | 0.762 | 0.568 | 0.579 | 0.435 |
-| graph only (PPR) | 0.470 | 0.564 | 0.653 | 0.371 | 0.398 | 0.304 |
-| dense only | 0.463 | 0.538 | 0.633 | 0.397 | 0.407 | 0.304 |
+| **graph + hybrid (default)** | **0.673** | **0.757** | **0.820** | **0.580** | **0.599** | **0.459** |
+| BM25 + dense (hybrid) | 0.656 | 0.717 | 0.773 | 0.564 | 0.576 | 0.443 |
+| BM25 | 0.640 | 0.717 | 0.765 | 0.572 | 0.581 | 0.435 |
+| graph only (PPR) | 0.480 | 0.572 | 0.656 | 0.376 | 0.404 | 0.304 |
+| dense only | 0.468 | 0.544 | 0.641 | 0.401 | 0.411 | 0.306 |
 | previous retriever (v0.1) | 0.463 | 0.538 | 0.561 | 0.394 | 0.407 | 0.304 |
 
 <sub>Embeddings: WordLlama (the `lite` backend), entities: spaCy — the benchmark environment could not

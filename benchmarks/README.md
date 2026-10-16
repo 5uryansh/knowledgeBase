@@ -62,20 +62,20 @@ are in [`results/`](results/).
 
 | mode | R@5 | R@10 | R@20 | complete@10 | MRR | nDCG@10 |
 |---|---|---|---|---|---|---|
-| **graph_hybrid** | **0.673** | **0.755** | **0.817** | **0.696** | **0.578** | **0.598** |
-| hybrid | 0.656 | 0.715 | 0.770 | 0.654 | 0.561 | 0.574 |
-| bm25 | 0.638 | 0.718 | 0.762 | 0.659 | 0.568 | 0.579 |
-| graph | 0.470 | 0.564 | 0.653 | 0.519 | 0.371 | 0.398 |
-| dense | 0.463 | 0.538 | 0.633 | 0.480 | 0.397 | 0.407 |
+| **graph_hybrid** | **0.673** | **0.757** | **0.820** | **0.698** | **0.580** | **0.599** |
+| hybrid | 0.656 | 0.717 | 0.773 | 0.656 | 0.564 | 0.576 |
+| bm25 | 0.640 | 0.717 | 0.765 | 0.657 | 0.572 | 0.581 |
+| graph | 0.480 | 0.572 | 0.656 | 0.527 | 0.376 | 0.404 |
+| dense | 0.468 | 0.544 | 0.641 | 0.485 | 0.401 | 0.411 |
 | legacy (v0.1) | 0.463 | 0.538 | 0.561 | 0.480 | 0.394 | 0.407 |
 
 Recall@10 by question type:
 
 | mode | single-hop | multi-hop | temporal | open-domain |
 |---|---|---|---|---|
-| **graph_hybrid** | **0.900** | **0.459** | **0.747** | **0.361** |
-| hybrid | 0.840 | 0.443 | 0.736 | 0.333 |
-| bm25 | 0.850 | 0.435 | 0.730 | 0.333 |
+| **graph_hybrid** | **0.901** | **0.459** | **0.747** | **0.367** |
+| hybrid | 0.841 | 0.443 | 0.734 | 0.352 |
+| bm25 | 0.850 | 0.435 | 0.724 | 0.333 |
 | legacy (v0.1) | 0.630 | 0.304 | 0.579 | 0.263 |
 
 What we learned on the way (dev split):
@@ -92,6 +92,9 @@ What we learned on the way (dev split):
 * Diversifying the top-k across conversations, graph-based query expansion (re-running BM25 with the
   labels of activated concepts) and semantic concept seeding with static embeddings all *hurt* on dev and
   are off by default (`max_per_conversation`, `w_expansion`, `semantic_seeds`).
+* Time hints ("in June", "last spring") parsed from the question and used as a soft boost
+  (`time_boost`): +8 pts R@10 on the 13 time-hinted dev questions, +1 pt on the 153 in test; neutral
+  elsewhere. Applied in every mode so the comparison stays fair.
 * Many LoCoMo "multi-hop" questions are really *category* questions ("What instruments does Melanie
   play?" → violin, clarinet) whose evidence never contains the category word. Term-level semantic seeds
   (`term_seeds`: each query word activates the concepts with the closest label embedding) gained +0.013 on

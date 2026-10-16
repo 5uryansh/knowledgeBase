@@ -682,6 +682,7 @@ async function runSearch(q, { pushHistory = true } = {}) {
       <button type="button" class="open-conv" data-conversation="${esc(r.conversation_id)}" data-chunk="${esc(r.chunk_id)}">Read the conversation</button>
     </article>`).join("");
   showPanel(`${backButton()}<h1>${esc(q)}</h1>
+    ${data.time_window ? `<p class="lede">Favouring conversations from ${esc(data.time_window)}.</p>` : ""}
     ${matched.length ? `<p class="lede">Concepts in your question: ${matched.map((c) => `<button type="button" class="chip" data-concept="${esc(c.id)}">${esc(c.label)}</button>`).join("")}</p>` : ""}
     ${results ? `<h2>Passages</h2>${results}` : `<p class="muted">Nothing in your conversations matches this yet. Try fewer or different words.</p>`}`);
   if (matched.length) setTimeout(() => fitTo((n) => state.route.nodes.has(n.id)), 400);

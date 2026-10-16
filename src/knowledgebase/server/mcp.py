@@ -132,6 +132,8 @@ TOOLS: list[dict] = [
 # ---------------------------------------------------------------------- tool implementations
 def _fmt_search(data: dict) -> str:
     lines = [f"Results for: {data['query']}"]
+    if data.get("time_window"):
+        lines.append(f"Favouring conversations from: {data['time_window']}")
     if data["concepts"]:
         lines.append("Matched concepts: " + ", ".join(c["label"] for c in data["concepts"]))
     for r in data["results"]:

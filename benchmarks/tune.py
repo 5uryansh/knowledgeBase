@@ -37,7 +37,7 @@ SPACE = {
     "semantic_min_sim": [0.2, 0.3, 0.4, 0.5],
 }
 FUSION_KEYS = {"w_bm25", "w_dense", "w_graph", "rrf_k", "first_stage_k", "max_per_conversation", "w_expansion",
-               "expansion_concepts", "w_conversation"}
+               "expansion_concepts", "w_conversation", "time_boost"}
 
 
 def objective(rows: list[dict]) -> float:

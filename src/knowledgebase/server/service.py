@@ -270,9 +270,11 @@ class KnowledgeService:
         results = idx.search(query, k=k, mode=mode)
         matched = idx.graph_retriever.matcher.match(query)
         concepts = [self.node_summary(n) for n in sorted(matched, key=lambda n: -matched[n]) if n in self.graph.nodes]
+        window = idx.retriever.last_time_window
         return {
             "query": query,
             "mode": mode,
+            "time_window": window.label if window else None,
             "results": [r.to_dict(max_chars=max_chars) for r in results],
             "concepts": concepts[:10],
         }

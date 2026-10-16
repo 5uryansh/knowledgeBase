@@ -80,6 +80,8 @@ def cmd_search(args) -> int:
         return 0
     if data["concepts"]:
         print("concepts: " + ", ".join(c["label"] for c in data["concepts"]))
+    if data.get("time_window"):
+        print(f"favouring: {data['time_window']}")
     for r in data["results"]:
         via = f"  via {', '.join(r['via'])}" if r["via"] else ""
         print(f"\n[{r['rank']}] {r['title']} · {r['date']} · {r['platform']}{via}")
