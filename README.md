@@ -85,6 +85,11 @@ with how often you came back to a topic, discounted for generic words — groupe
 
 ![Discover in dark mode](docs/images/atlas-discover-dark.png)
 
+**Share it without a server:** `kb export site/` writes the atlas as a static site (pre-computed JSON shards,
+still lazy-loaded) that you can host on GitHub Pages or any static host. Conversation text is only included
+with `--include-conversations`. This repository's `pages.yml` workflow publishes the sample-data atlas on every
+push to `main` (enable *Settings → Pages → Source: GitHub Actions* once).
+
 ---
 
 ## MCP server — give your agents your memory
@@ -241,7 +246,7 @@ Any setting can also be given as an environment variable (`KB_VAULT_DIR`, `KB_EM
 - [ ] Incremental builds (only re-link conversations that changed)
 - [ ] LLM-assisted relation extraction and concept summaries
 - [ ] OpenCode / Cursor / terminal-session parsers
-- [ ] Static export of the atlas for sharing without a server
+- [x] Static export of the atlas for sharing without a server
 
 ---
 

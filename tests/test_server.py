@@ -108,3 +108,21 @@ def test_mcp_batch_and_origin_check(client):
     assert [r["id"] for r in out] == [1, 2]
     assert rpc(client, "ping", headers={"Origin": "https://evil.example"}).status_code == 403
     assert rpc(client, "ping", headers={"Origin": "http://localhost:5173"}).status_code == 200
+
+
+def test_static_export(demo_vault, tmp_path):
+    import json
+
+    from knowledgebase.server.export import export_site
+
+    info = export_site(demo_vault / "indexes", tmp_path / "site", max_nodes=200)
+    site = tmp_path / "site"
+    assert info["nodes"] == 200 and info["conversations"] == 0
+    assert "window.KB_STATIC" in (site / "index.html").read_text()
+    assert 'src="assets/app.js"' in (site / "index.html").read_text()
+    overview = json.loads((site / "data" / "overview.json").read_text())
+    node = overview["nodes"][0]["id"]
+    detail = json.loads((site / "data" / "nodes" / f"{node}.json").read_text())
+    exported = {p.stem for p in (site / "data" / "nodes").glob("*.json")}
+    assert all(nb["id"] in exported for nb in detail["neighbors"])
+    assert not (site / "data" / "conversations").exists()  # private text is opt-in

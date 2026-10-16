@@ -5,6 +5,7 @@
     kb serve                      UI + REST API + MCP on http://127.0.0.1:3001
     kb stats                      what is in the index
     kb demo                       build the bundled sample knowledge base and serve it
+    kb export site/               the atlas as a static site (GitHub Pages)
 """
 from __future__ import annotations
 
@@ -80,6 +81,18 @@ def cmd_serve(args) -> int:
     return 0
 
 
+def cmd_export(args) -> int:
+    from knowledgebase.server.export import export_site
+
+    settings = _settings(args)
+    info = export_site(settings.index_dir, Path(args.out), max_nodes=args.max_nodes,
+                       include_conversations=args.include_conversations, title=args.title)
+    print(f"✓ exported {info['nodes']} concepts, {info['paths']} routes, {info['conversations']} conversations "
+          f"to {info['out']}")
+    print(f"  preview: python -m http.server -d {args.out} 8000   (then open http://localhost:8000)")
+    return 0
+
+
 def cmd_demo(args) -> int:
     from knowledgebase.pipeline import build
 
@@ -132,6 +145,15 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("stats", help="show index statistics")
     common(p)
     p.set_defaults(func=cmd_stats)
+
+    p = sub.add_parser("export", help="write the atlas as a static site (e.g. for GitHub Pages)")
+    common(p)
+    p.add_argument("out", help="output folder")
+    p.add_argument("--max-nodes", type=int, default=3000)
+    p.add_argument("--include-conversations", action="store_true",
+                   help="also publish full conversation text (off by default — this is your private history)")
+    p.add_argument("--title")
+    p.set_defaults(func=cmd_export)
 
     for name, func, help_text in (("serve", cmd_serve, "UI + REST API + MCP server"),
                                   ("demo", cmd_demo, "build the bundled sample data and serve it")):

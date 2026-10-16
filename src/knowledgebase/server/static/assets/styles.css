@@ -124,6 +124,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
 .map-status {
   position: absolute; left: 50%; bottom: 22px; transform: translateX(-50%);
   margin: 0; color: var(--ink-soft); font-size: 15px; pointer-events: none;
+  padding: 3px 12px; border-radius: 12px; background: color-mix(in srgb, var(--paper) 88%, transparent);
 }
 
 .regions {
@@ -181,7 +182,8 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
   display: block; width: 100%; text-align: left; border: 0; background: none; padding: 9px 2px;
   color: var(--ink);
 }
-.row-btn:hover .row-title { color: var(--select); }
+.row-btn:hover:not(:disabled) .row-title { color: var(--select); }
+.row-btn:disabled { cursor: default; color: var(--ink); opacity: 1; }
 .row-title { font-weight: 600; display: flex; align-items: center; gap: 8px; }
 .row-meta { color: var(--ink-soft); font-size: 14px; }
 .row-snippet { margin: 3px 0 0; font-size: 15px; color: var(--ink-soft); line-height: 1.4; }

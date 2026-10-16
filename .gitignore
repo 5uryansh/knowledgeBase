@@ -12,3 +12,4 @@ benchmarks/data/
 benchmarks/results/*_smoke.*
 node_modules/
 demo_vault/
+site/

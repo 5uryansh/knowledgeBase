@@ -44,7 +44,51 @@ const fmtDate = (d) => {
 };
 const platformName = (p) => ({ chatgpt: "ChatGPT", claude: "Claude", gemini: "Gemini", "claude-code": "Claude Code" }[p] || p);
 
+// Static export (kb export): the same API contract, served from pre-computed JSON files.
+const STATIC = window.KB_STATIC || null;
+let nodeIndex = null;
+async function staticApi(path) {
+  const url = new URL(path, "http://x");
+  const p = url.pathname, q = url.searchParams;
+  const get = async (file) => {
+    const res = await fetch(`data/${file}`);
+    if (!res.ok) throw new Error(res.status === 404 ? "Not part of this export" : `Request failed (${res.status})`);
+    return res.json();
+  };
+  if (p === "/api/stats") return get("stats.json");
+  if (p === "/api/graph/overview") return get(q.get("community") != null ? `overview_c${q.get("community")}.json` : "overview.json");
+  if (p.startsWith("/api/graph/node/")) {
+    let id = decodeURIComponent(p.slice("/api/graph/node/".length));
+    if (!/^[a-z0-9_]+$/.test(id)) {  // a label was passed: resolve it through the index
+      nodeIndex = nodeIndex || await get("node_index.json");
+      const hit = nodeIndex.find((n) => n.label.toLowerCase() === id.toLowerCase());
+      if (hit) id = hit.id;
+    }
+    return get(`nodes/${id}.json`);
+  }
+  if (p === "/api/nodes/search") {
+    nodeIndex = nodeIndex || await get("node_index.json");
+    const needle = (q.get("q") || "").toLowerCase();
+    const score = (n) => {
+      const names = [n.label.toLowerCase(), ...(n.aliases || []).map((a) => a.toLowerCase())];
+      if (names.includes(needle)) return 3;
+      if (names.some((x) => x.startsWith(needle))) return 2;
+      return names.some((x) => x.includes(needle)) ? 1 : 0;
+    };
+    return nodeIndex.map((n) => [score(n) + (n.importance || 0), n]).filter(([s]) => s >= 1)
+      .sort((a, b) => b[0] - a[0]).slice(0, Number(q.get("limit") || 8)).map(([, n]) => n);
+  }
+  if (p === "/api/discover") return get("discover.json");
+  if (p === "/api/graph/path") return get(`paths/${q.get("source")}__${q.get("target")}.json`);
+  if (p.startsWith("/api/conversation/")) {
+    if (!STATIC.conversations) throw new Error("Conversation text is not included in this export");
+    return get(`conversations/${p.split("/").pop()}.json`);
+  }
+  throw new Error("Passage search needs the live server (kb serve)");
+}
+
 async function api(path) {
+  if (STATIC) return staticApi(path);
   const res = await fetch(path);
   if (res.status === 503) throw Object.assign(new Error("not indexed"), { code: 503 });
   if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || `Request failed (${res.status})`);
@@ -468,6 +512,7 @@ function renderIntro(stats) {
     <h1>An atlas of your conversations</h1>
     <p>Every concept you have discussed with an AI assistant, placed by what it is connected to. The tinted regions are the themes your conversations keep returning to.</p>
     <p>Open a concept to see its neighbours and where you talked about it, or search above.</p>
+    ${STATIC ? `<p class="muted">This is a static snapshot: concepts and connections are browsable; passage search needs the live app (<code>kb serve</code>).</p>` : ""}
     <dl class="facts">
       <dt>${(stats.nodes || 0).toLocaleString()}</dt><dd>concepts</dd>
       <dt>${(stats.conversations || 0).toLocaleString()}</dt><dd>conversations${platforms ? ` (${esc(platforms)})` : ""}</dd>
@@ -516,7 +561,8 @@ function renderConcept(d) {
       <span class="verb">${esc(relWord(r.relation))}</span>
       <button type="button" class="wikilink" data-concept="${esc(r.target)}">${esc(r.target_label)}</button>
       ${r.evidence && r.evidence[0] ? `<blockquote>${esc(r.evidence[0])}</blockquote>` : ""}</div>`).join("");
-  const mentions = d.mentions.map((m) => `<li><button type="button" class="row-btn" data-conversation="${esc(m.conversation_id)}" data-chunk="${esc(m.chunk_id)}">
+  const canRead = !STATIC || STATIC.conversations;
+  const mentions = d.mentions.map((m) => `<li><button type="button" class="row-btn" ${canRead ? `data-conversation="${esc(m.conversation_id)}" data-chunk="${esc(m.chunk_id || "")}"` : "disabled"}>
       <span class="row-title">${esc(m.title)}</span>
       <span class="row-meta">${esc(platformName(m.platform))}, ${esc(fmtDate(m.date))}${m.count > 1 ? `, ${m.count} passages` : ""}</span>
       <p class="row-snippet">${esc(m.snippet)}</p></button></li>`).join("");
@@ -562,7 +608,7 @@ input.addEventListener("input", () => {
   if (!q) { hideSuggestions(); return; }
   suggestTimer = setTimeout(async () => {
     const nodes = await api(`/api/nodes/search?q=${encodeURIComponent(q)}&limit=6`).catch(() => []);
-    suggestItems = [...nodes.map((n) => ({ type: "concept", node: n })), { type: "ask", q }];
+    suggestItems = [...nodes.map((n) => ({ type: "concept", node: n })), ...(STATIC ? [] : [{ type: "ask", q }])];
     activeIndex = -1;
     sugg.innerHTML = suggestItems.map((it, i) => it.type === "concept"
       ? `<li role="option" id="sugg-${i}" data-i="${i}"><span>${esc(it.node.label)}</span><span class="hint">${it.node.conversation_count} conversation${it.node.conversation_count === 1 ? "" : "s"}</span></li>`
@@ -588,7 +634,7 @@ $("#search-form").addEventListener("submit", (e) => {
   e.preventDefault();
   const q = input.value.trim();
   if (!q) return;
-  choose(activeIndex >= 0 ? suggestItems[activeIndex] : { type: "ask", q });
+  choose(activeIndex >= 0 ? suggestItems[activeIndex] : STATIC ? suggestItems[0] : { type: "ask", q });
 });
 function hideSuggestions() { sugg.hidden = true; input.setAttribute("aria-expanded", "false"); activeIndex = -1; }
 function choose(item) {
@@ -709,6 +755,7 @@ $("#panel-body").addEventListener("click", async (e) => {
 // ------------------------------------------------------------------ controls
 $("#zoom-fit").addEventListener("click", () => Graph.zoomToFit(ANIM, 80));
 $("#reset-map").addEventListener("click", async () => {
+  if (STATIC) document.querySelector("#search-input").placeholder = "Find a concept";
   state.region = null; state.history = []; clearSelection();
   await loadOverview();
   renderIntro(await api("/api/stats"));
@@ -734,6 +781,7 @@ document.addEventListener("keydown", (e) => {
   try { const saved = localStorage.getItem("kb-theme"); if (saved) document.documentElement.dataset.theme = saved; } catch { /* ignore */ }
   colors = palette();
   resize();
+  if (STATIC) $("#search-input").placeholder = "Find a concept";
   try {
     const stats = await api("/api/stats");
     renderIntro(stats);
