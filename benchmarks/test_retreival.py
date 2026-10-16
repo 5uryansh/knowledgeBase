@@ -1,6 +1,10 @@
 from collections import defaultdict
 import json
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 from src.retrieval.chunk_store import ChunkStore
 from src.retrieval.embedder import Embedder
 from src.retrieval.entity_index import EntityIndex
