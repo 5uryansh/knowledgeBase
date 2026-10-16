@@ -88,7 +88,8 @@ def build_embedder(kind: str = "auto", model_name: str = "BAAI/bge-small-en-v1.5
         except Exception as exc:  # noqa: BLE001 - missing dependency or model download blocked
             if kind != "auto":
                 raise
-            log.warning("sentence-transformers unavailable (%s); trying wordllama.", exc.__class__.__name__)
+            log.warning("Transformer embeddings unavailable (%s) — using the lightweight backend. "
+                        "For best quality: pip install 'knowledgebase[ml]'.", exc.__class__.__name__)
     if kind in ("auto", "wordllama"):
         try:
             return WordLlamaEmbedder()

@@ -131,5 +131,5 @@ def build_entity_extractor(kind: str, nlp, gliner_model: str, labels: list[str])
         except Exception as exc:  # noqa: BLE001
             if kind == "gliner":
                 raise
-            log.warning("GLiNER unavailable (%s); falling back to spaCy NER.", exc.__class__.__name__)
+            log.info("GLiNER unavailable (%s) — using spaCy NER + technical-term patterns.", exc.__class__.__name__)
     return SpacyEntityExtractor(nlp)
