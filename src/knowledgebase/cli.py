@@ -37,9 +37,35 @@ def cmd_build(args) -> int:
         settings.exports[platform] = path
     report = build(settings, write_vault=not args.no_vault)
     print(f"✓ {report}")
-    print(f"  vault: {settings.vault_dir.resolve()}")
+    print_highlights(settings.index_dir)
+    print(f"\n  vault: {settings.vault_dir.resolve()}")
     print("  next:  kb serve   (UI + MCP on http://%s:%d)" % (settings.host, settings.port))
     return 0
+
+
+def print_highlights(index_dir: Path) -> None:
+    """A first look at what the graph found, right in the terminal."""
+    from knowledgebase.graph.model import KnowledgeGraph
+
+    try:
+        g = KnowledgeGraph.load(index_dir / "graph.json")
+    except (OSError, ValueError):
+        return
+    label = lambda n: g.nodes[n]["label"] if n in g.nodes else n  # noqa: E731
+    top = [n["label"] for n in g.top_nodes(12)]
+    if top:
+        print("\n  Most central: " + ", ".join(top))
+    themes = [c["label"] for c in g.communities[:6] if c.get("size", 0) >= 3]
+    if themes:
+        print("  Main themes:  " + "; ".join(themes))
+    d = g.discoveries or {}
+    if d.get("hidden_connections"):
+        h = d["hidden_connections"][0]
+        print(f"  Never connected, but close: {label(h['source'])} and {label(h['target'])} "
+              f"(both linked to {', '.join(label(v) for v in h['via'][:3])})")
+    if d.get("forgotten"):
+        f = d["forgotten"][0]
+        print(f"  Not visited lately: {label(f['node'])} (last discussed {f['last_seen']})")
 
 
 def cmd_search(args) -> int:
@@ -109,6 +135,7 @@ def cmd_demo(args) -> int:
         "claude-code": str(root / "claude-code" / "projects"),
     }
     print(f"✓ {build(settings)}")
+    print_highlights(settings.index_dir)
     if args.no_serve:
         return 0
     args.config, args.vault, args.allow_origin = None, str(settings.vault_dir), []
