@@ -197,6 +197,11 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
 .relation .verb { color: var(--survey); font-weight: 600; }
 .relation blockquote { margin: 4px 0 0; font-family: var(--font-letter); font-size: 15px; color: var(--ink-soft); line-height: 1.5; }
 
+.summary { font-family: var(--font-letter); font-size: 15.5px; line-height: 1.55; }
+.summary p { margin: 0 0 6px; }
+.summary ul, .reader ul, .passage ul { margin: 4px 0 8px; padding-left: 1.1em; }
+.summary li { margin-bottom: 7px; }
+.cite { font-family: var(--font-ui); font-size: 13px; color: var(--ink-soft); }
 .timeline { display: flex; align-items: flex-end; gap: 3px; height: 54px; margin-top: 4px; }
 .timeline span { flex: 1; min-width: 4px; background: var(--route); border-radius: 2px 2px 0 0; }
 .timeline-axis { display: flex; justify-content: space-between; font-size: 13px; color: var(--ink-soft); margin-top: 4px; }

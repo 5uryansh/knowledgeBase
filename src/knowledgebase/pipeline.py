@@ -30,6 +30,7 @@ from knowledgebase.retrieval.chunk import Chunk
 from knowledgebase.retrieval.chunker import Chunker
 from knowledgebase.retrieval.embedders import Embedder, build_embedder
 from knowledgebase.retrieval.index import KnowledgeIndex
+from knowledgebase.summaries import load_summaries
 from knowledgebase.text import WIKILINK
 
 log = logging.getLogger(__name__)
@@ -278,7 +279,7 @@ def build(
             rel = conversation_relpath(c)
             for node in {l for t in linked_by_conv[c.uid] for l in _links(t)}:
                 mentions[node].append((rel, c.title, c.date))
-        writer.write_concept_notes(graph, mentions)
+        writer.write_concept_notes(graph, mentions, summaries=load_summaries(index_dir))
         ObsidianGraphStyle(vault).apply()
 
     report.seconds = time.time() - t0
@@ -289,3 +290,16 @@ def _links(text: str) -> set[str]:
     from knowledgebase.graph.cooccurrence import links_in
 
     return set(links_in(text))
+
+
+def refresh_concept_notes(settings: Settings, index: KnowledgeIndex, only: set[str] | None = None) -> int:
+    """Rewrite concept notes from an existing index (e.g. after `kb summarize`), without a rebuild."""
+    mentions: dict[str, list[tuple[str, str, str]]] = defaultdict(list)
+    seen: set[tuple[str, str]] = set()
+    for c in index.chunks:
+        for node in c.links:
+            if (node, c.conversation_id) not in seen:
+                seen.add((node, c.conversation_id))
+                mentions[node].append((c.source, c.title, c.date))
+    return VaultWriter(Path(settings.vault_dir)).write_concept_notes(
+        index.graph, mentions, summaries=load_summaries(settings.index_dir), only=only)

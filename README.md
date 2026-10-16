@@ -87,6 +87,12 @@ with how often you came back to a topic, discounted for generic words — groupe
 
 ![Discover in dark mode](docs/images/atlas-discover-dark.png)
 
+**Let it write your wiki (optional):** `kb summarize --top 50` asks an LLM what *you* learned, built and
+decided about each important concept, using only your own conversations, with a source on every bullet. Any
+OpenAI-compatible endpoint works (Ollama, vLLM, LM Studio, OpenAI, a Hugging Face Space —
+`KB_LLM_BASE_URL` + `KB_LLM_MODEL`), or Gemini (`GEMINI_API_KEY`). Summaries are cached by their evidence,
+survive rebuilds, and appear in the atlas, the Obsidian notes and the `explore_concept` MCP tool.
+
 **Share it without a server:** `kb export site/` writes the atlas as a static site (pre-computed JSON shards,
 still lazy-loaded) that you can host on GitHub Pages or any static host. Conversation text is only included
 with `--include-conversations`. This repository's `pages.yml` workflow publishes the sample-data atlas on every
@@ -247,7 +253,8 @@ Any setting can also be given as an environment variable (`KB_VAULT_DIR`, `KB_EM
 - [x] MCP server and interactive graph explorer
 - [ ] Cross-encoder reranking of the fused shortlist
 - [ ] Incremental builds (only re-link conversations that changed)
-- [ ] LLM-assisted relation extraction and concept summaries
+- [x] LLM-written concept summaries (`kb summarize`)
+- [ ] LLM-assisted relation extraction
 - [ ] OpenCode / Cursor / terminal-session parsers
 - [x] Static export of the atlas for sharing without a server
 

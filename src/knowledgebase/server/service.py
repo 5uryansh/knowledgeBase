@@ -26,6 +26,7 @@ class KnowledgeService:
         self.embedder_kind = embedder
         self.embed_model = embed_model
         self._index: KnowledgeIndex | None = None
+        self._summaries: dict | None = None
         self._lock = threading.Lock()
 
     # ------------------------------------------------------------------ lifecycle
@@ -45,6 +46,15 @@ class KnowledgeService:
     def reload(self) -> None:
         with self._lock:
             self._index = None
+            self._summaries = None
+
+    @property
+    def summaries(self) -> dict:
+        if self._summaries is None:
+            from knowledgebase.summaries import load_summaries
+
+            self._summaries = load_summaries(self.index_dir)
+        return self._summaries
 
     @property
     def graph(self):
@@ -215,6 +225,7 @@ class KnowledgeService:
             "mentions": self.mentions(node_id),
             "timeline": self.timeline(node_id),
             "worth_connecting": self.worth_connecting(node_id),
+            "summary": self.summaries.get(node_id),
         }
 
     # ------------------------------------------------------------------ paths & discovery

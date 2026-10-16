@@ -1,6 +1,7 @@
 import json
 
-from benchmarks.judged import graded_metrics, parse_json, run
+from benchmarks.judged import graded_metrics, run
+from knowledgebase.llm import parse_json
 
 
 class FakeJudge:
@@ -8,7 +9,7 @@ class FakeJudge:
 
     name = "fake"
 
-    def complete_json(self, prompt: str) -> str:
+    def complete(self, prompt: str, json_mode: bool = False) -> str:
         if "SET A" in prompt:
             return json.dumps({"verdict": "tie"})
         question = prompt.split("QUESTION:\n", 1)[1].split("\n", 1)[0].lower()
@@ -19,6 +20,7 @@ class FakeJudge:
 
 def test_parse_json_handles_fences():
     assert parse_json('```json\n{"grades": {"1": 2}}\n```') == {"grades": {"1": 2}}
+    assert parse_json('Sure! {"verdict": "tie"} hope that helps') == {"verdict": "tie"}
     assert parse_json("no json here") == {}
 
 

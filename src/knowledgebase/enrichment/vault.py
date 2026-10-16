@@ -99,11 +99,13 @@ class VaultWriter:
         return written
 
     def write_concept_notes(self, graph: KnowledgeGraph, mentions: dict[str, list[tuple[str, str, str]]],
-                            max_related: int = 15, max_mentions: int = 200) -> int:
-        """``mentions[node] = [(conversation relpath, title, date), ...]``"""
+                            max_related: int = 15, max_mentions: int = 200, summaries: dict | None = None,
+                            only: set[str] | None = None) -> int:
+        """``mentions[node] = [(conversation relpath, title, date), ...]``; ``summaries`` from summaries.json."""
         count = 0
+        summaries = summaries or {}
         for node_id, node in graph.nodes.items():
-            if not notable(node):
+            if not notable(node) or (only is not None and node_id not in only):
                 continue
             folder = "entities" if node.get("kind") == "entity" else "topics"
             path = self.vault_dir / folder / f"{sanitize_filename(node_id)}.md"
@@ -114,6 +116,10 @@ class VaultWriter:
             if node.get("first_seen"):
                 meta.append(f"{node['first_seen']} → {node.get('last_seen', '')}")
             block.append(f"*{' · '.join(m for m in meta if m)}*")
+            if summaries.get(node_id, {}).get("summary"):
+                block.append("\n## Summary")
+                block.append(summaries[node_id]["summary"].strip())
+                block.append(f"\n<sub>written by {summaries[node_id].get('model', 'an LLM')} from your conversations</sub>")
             related = [(o, e) for o, e in graph.neighbors(node_id, limit=max_related * 3, min_strength=1e-6)
                        if notable(graph.nodes.get(o))][:max_related]
             if related:

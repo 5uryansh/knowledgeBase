@@ -19,14 +19,12 @@ from __future__ import annotations
 import argparse
 import json
 import math
-import os
 import statistics
 import time
-import urllib.request
 from collections import defaultdict
 from pathlib import Path
-from typing import Protocol
 
+from knowledgebase.llm import LLM, build_llm, parse_json
 from knowledgebase.retrieval.index import KnowledgeIndex
 from knowledgebase.retrieval.retriever import MODES
 
@@ -67,78 +65,6 @@ Respond with ONLY a JSON object:
 {{"verdict": "A_much_better" | "A_slightly_better" | "tie" | "B_slightly_better" | "B_much_better", "reason": "<one sentence>"}}"""
 
 VERDICT_SCORES = {"A_much_better": 2, "A_slightly_better": 1, "tie": 0, "B_slightly_better": -1, "B_much_better": -2}
-GEMINI_MODELS = ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-3.6-flash", "gemini-3-flash", "gemini-2.5-flash"]
-
-
-class LLM(Protocol):
-    name: str
-
-    def complete_json(self, prompt: str) -> str:  # pragma: no cover
-        ...
-
-
-class GeminiLLM:
-    """Rotates through a model pool so one model's daily quota doesn't stall the run."""
-
-    def __init__(self, api_key: str, models: list[str] | None = None, retries: int = 2):
-        from google import genai  # pip install google-genai
-
-        self.client = genai.Client(api_key=api_key)
-        self.models = models or GEMINI_MODELS
-        self.idx, self.retries = 0, retries
-        self.name = f"gemini:{self.models[0]}"
-
-    def complete_json(self, prompt: str) -> str:
-        last = None
-        for _ in range(len(self.models)):
-            model = self.models[self.idx]
-            for attempt in range(self.retries):
-                try:
-                    r = self.client.models.generate_content(
-                        model=model, contents=prompt,
-                        config={"response_mime_type": "application/json", "temperature": 0})
-                    return r.text
-                except Exception as exc:  # noqa: BLE001 - quota / transient
-                    last = exc
-                    time.sleep(min(2 ** attempt, 8))
-            self.idx = (self.idx + 1) % len(self.models)
-            print(f"  judge: rotating to {self.models[self.idx]} after: {str(last)[:80]}", flush=True)
-        raise RuntimeError(f"all judge models exhausted: {last}")
-
-
-class OpenAICompatibleLLM:
-    """Any /v1/chat/completions endpoint: OpenAI, vLLM, Ollama, llama.cpp, a Hugging Face Space, ..."""
-
-    def __init__(self, base_url: str, model: str, api_key: str = ""):
-        self.url = base_url.rstrip("/") + "/chat/completions"
-        self.model, self.api_key = model, api_key
-        self.name = f"openai-compatible:{model}"
-
-    def complete_json(self, prompt: str) -> str:
-        body = json.dumps({"model": self.model, "temperature": 0,
-                           "messages": [{"role": "user", "content": prompt}]}).encode()
-        req = urllib.request.Request(self.url, data=body, headers={
-            "Content-Type": "application/json", **({"Authorization": f"Bearer {self.api_key}"} if self.api_key else {})})
-        for attempt in range(4):
-            try:
-                with urllib.request.urlopen(req, timeout=180) as resp:  # noqa: S310 - user-configured URL
-                    return json.loads(resp.read())["choices"][0]["message"]["content"]
-            except Exception:  # noqa: BLE001
-                if attempt == 3:
-                    raise
-                time.sleep(2 ** attempt)
-        return ""
-
-
-def parse_json(raw: str) -> dict:
-    raw = raw.strip()
-    if raw.startswith("```"):
-        raw = raw.strip("`").split("\n", 1)[-1]
-    start, end = raw.find("{"), raw.rfind("}")
-    try:
-        return json.loads(raw[start:end + 1]) if start >= 0 else {}
-    except json.JSONDecodeError:
-        return {}
 
 
 def format_passages(chunks, chars: int = 700) -> str:
@@ -170,7 +96,7 @@ def grade(llm: LLM, cache: GradeCache, qid: str, question: str, chunks, delay: f
     missing = [c for c in chunks if cache.get(qid, c.id) is None]
     for start in range(0, len(missing), 10):
         batch = missing[start:start + 10]
-        parsed = parse_json(llm.complete_json(GRADE_PROMPT.format(question=question, passages=format_passages(batch))))
+        parsed = parse_json(llm.complete(GRADE_PROMPT.format(question=question, passages=format_passages(batch)), json_mode=True))
         grades = parsed.get("grades", {}) if isinstance(parsed, dict) else {}
         for i, c in enumerate(batch, 1):
             try:
@@ -195,14 +121,12 @@ def graded_metrics(grades: list[int], all_known: list[int], k: int) -> dict[str,
     }
 
 
-def build_llm() -> LLM:
-    if os.environ.get("KB_JUDGE_BASE_URL"):
-        return OpenAICompatibleLLM(os.environ["KB_JUDGE_BASE_URL"], os.environ.get("KB_JUDGE_MODEL", "default"),
-                                   os.environ.get("KB_JUDGE_API_KEY", ""))
-    if os.environ.get("GEMINI_API_KEY"):
-        return GeminiLLM(os.environ["GEMINI_API_KEY"])
-    raise SystemExit("Set GEMINI_API_KEY, or KB_JUDGE_BASE_URL (+ KB_JUDGE_MODEL, KB_JUDGE_API_KEY) for an "
-                     "OpenAI-compatible judge.")
+def judge_llm() -> LLM:
+    llm = build_llm("KB_JUDGE")
+    if llm is None:
+        raise SystemExit("Set GEMINI_API_KEY, or KB_JUDGE_BASE_URL (+ KB_JUDGE_MODEL, KB_JUDGE_API_KEY) for an "
+                         "OpenAI-compatible judge.")
+    return llm
 
 
 def run(index: KnowledgeIndex, questions: list[dict], llm: LLM, modes: list[str], k: int, out_dir: Path,
@@ -219,10 +143,10 @@ def run(index: KnowledgeIndex, questions: list[dict], llm: LLM, modes: list[str]
             per_mode[m].append({**graded_metrics(graded[m], list(pool.values()), k), "category": q.get("category", "")})
         if pairwise:
             a, b = pairwise
-            s1 = VERDICT_SCORES.get(parse_json(llm.complete_json(PAIRWISE_PROMPT.format(
-                question=text, set_a=format_passages(retrieved[a]), set_b=format_passages(retrieved[b])))).get("verdict"), 0)
-            s2 = VERDICT_SCORES.get(parse_json(llm.complete_json(PAIRWISE_PROMPT.format(
-                question=text, set_a=format_passages(retrieved[b]), set_b=format_passages(retrieved[a])))).get("verdict"), 0)
+            s1 = VERDICT_SCORES.get(parse_json(llm.complete(PAIRWISE_PROMPT.format(
+                question=text, set_a=format_passages(retrieved[a]), set_b=format_passages(retrieved[b])), json_mode=True)).get("verdict"), 0)
+            s2 = VERDICT_SCORES.get(parse_json(llm.complete(PAIRWISE_PROMPT.format(
+                question=text, set_a=format_passages(retrieved[b]), set_b=format_passages(retrieved[a])), json_mode=True)).get("verdict"), 0)
             pair_scores.append((s1 - s2) / 2)  # positive = first mode better
         print(f"  [{n}/{len(questions)}] {text[:70]}", flush=True)
 
@@ -258,7 +182,7 @@ def main() -> None:
     modes = [m for m in args.modes.split(",") if m in MODES and (m != "dense" or index.embedder)]
     pairwise = tuple(args.pairwise.split(",")) if args.pairwise else None
     out_dir = ROOT / "results" / "judged"
-    result = run(index, questions, build_llm(), modes, args.k, out_dir, pairwise, args.delay)
+    result = run(index, questions, judge_llm(), modes, args.k, out_dir, pairwise, args.delay)
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / f"judged_{time.strftime('%Y%m%d-%H%M%S')}.json").write_text(json.dumps(result, indent=1))
     print(json.dumps(result, indent=1))

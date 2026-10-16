@@ -580,6 +580,7 @@ function renderConcept(d) {
     <h1>${esc(n.label)}</h1>
     <p class="lede">${esc(cap(kind))}, discussed in ${n.conversation_count} conversation${n.conversation_count === 1 ? "" : "s"}${esc(span)}.</p>
     ${d.community ? `<button type="button" class="region-chip" data-region-chip="${d.community.id}"><span class="swatch" style="background:${regionTint(d.community.id)}"></span>${esc(d.community.label)}</button>` : ""}
+    ${d.summary ? `<h2>In short</h2><div class="summary">${renderText(d.summary.summary)}</div><p class="row-meta">Written by ${esc(d.summary.model)} from ${d.summary.sources.length} of your conversations.</p>` : ""}
     ${timelineHtml(d.timeline)}
     ${neighbours ? `<h2>Connected to</h2><ul class="rows">${neighbours}</ul>` : `<p class="muted">No connections yet.</p>`}
     ${relations ? `<h2>How they relate</h2>${relations}` : ""}
@@ -602,7 +603,13 @@ function renderText(md) {
     .replace(/\[\[([^\]]+)\]\]/g, (_, id) => `<button type="button" class="wikilink" data-concept="${id}">${id.replace(/_/g, " ")}</button>`)
     .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
     .replace(/`([^`]+)`/g, "<code>$1</code>");
-  html = html.split(/\n{2,}/).map((p) => `<p>${p.replace(/\n/g, "<br>")}</p>`).join("");
+  html = html.split(/\n{2,}/).map((p) => {
+    const lines = p.split("\n");
+    if (lines.length && lines.every((l) => /^\s*[-*•]\s+/.test(l))) {  // a bullet list
+      return `<ul>${lines.map((l) => `<li>${l.replace(/^\s*[-*•]\s+/, "").replace(/\s*(\[[^\]]+\])\s*$/, ' <span class="cite">$1</span>')}</li>`).join("")}</ul>`;
+    }
+    return `<p>${p.replace(/\n/g, "<br>")}</p>`;
+  }).join("");
   return html.replace(/<p>\u0000(\d+)\u0000<\/p>|\u0000(\d+)\u0000/g, (_, a, b) => `<pre><code>${esc(blocks[Number(a ?? b)])}</code></pre>`);
 }
 

@@ -149,6 +149,8 @@ def _fmt_concept(d: dict) -> str:
              f"Mentioned in {n.get('conversation_count', 0)} conversations, {n.get('first_seen')} → {n.get('last_seen')}."]
     if d.get("community"):
         lines.append(f"Theme: {d['community']['label']}")
+    if d.get("summary"):
+        lines.append("\n## Summary (from your conversations)\n" + d["summary"]["summary"])
     if d["neighbors"]:
         lines.append("\n## Related")
         for nb in d["neighbors"]:

@@ -6,6 +6,7 @@
     kb stats                      what is in the index
     kb demo                       build the bundled sample knowledge base and serve it
     kb export site/               the atlas as a static site (GitHub Pages)
+    kb summarize --top 50         optional LLM-written concept summaries (any OpenAI-compatible endpoint)
 """
 from __future__ import annotations
 
@@ -107,6 +108,35 @@ def cmd_serve(args) -> int:
     return 0
 
 
+def cmd_summarize(args) -> int:
+    from knowledgebase.llm import build_llm
+    from knowledgebase.pipeline import refresh_concept_notes
+    from knowledgebase.retrieval.index import KnowledgeIndex
+    from knowledgebase.summaries import Summarizer
+
+    settings = _settings(args)
+    llm = build_llm()
+    if llm is None:
+        print("No LLM configured. Set KB_LLM_BASE_URL + KB_LLM_MODEL (any OpenAI-compatible endpoint, e.g. Ollama, "
+              "vLLM, a Hugging Face Space) or GEMINI_API_KEY.", file=sys.stderr)
+        return 1
+    index = KnowledgeIndex.load(settings.index_dir, embedder=None)
+    if args.concept:
+        from knowledgebase.server.service import KnowledgeService
+
+        service = KnowledgeService(settings.index_dir, embedder="none")
+        nodes = [service.resolve(c) for c in args.concept]
+    else:
+        nodes = [n["id"] for n in index.graph.top_nodes(args.top, per_community_cap=1.0)]
+    summarizer = Summarizer(index, llm, settings.index_dir)
+    print(f"Summarising {len(nodes)} concepts with {llm.name} …")
+    done = summarizer.summarize(nodes, force=args.force, delay=args.delay, progress=lambda label: print(f"  ✓ {label}"))
+    refresh_concept_notes(settings, index, only=set(nodes))
+    print(f"✓ {done} new summaries ({len(summarizer.summaries)} total). They appear in the atlas, the vault notes "
+          "and the explore_concept MCP tool.")
+    return 0
+
+
 def cmd_export(args) -> int:
     from knowledgebase.server.export import export_site
 
@@ -172,6 +202,14 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("stats", help="show index statistics")
     common(p)
     p.set_defaults(func=cmd_stats)
+
+    p = sub.add_parser("summarize", help="LLM-written 'what do I know about X' summaries for top concepts")
+    common(p)
+    p.add_argument("--top", type=int, default=50, help="summarise the N most important concepts")
+    p.add_argument("--concept", action="append", help="summarise specific concepts (repeatable)")
+    p.add_argument("--force", action="store_true", help="regenerate even if the evidence is unchanged")
+    p.add_argument("--delay", type=float, default=0.0, help="seconds between LLM calls (rate limits)")
+    p.set_defaults(func=cmd_summarize)
 
     p = sub.add_parser("export", help="write the atlas as a static site (e.g. for GitHub Pages)")
     common(p)
