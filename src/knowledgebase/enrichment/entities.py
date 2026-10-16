@@ -26,6 +26,7 @@ TECH_PATTERNS = [
 _ACRONYM_BLOCKLIST = {
     "I", "OK", "AM", "PM", "TV", "ID", "OS", "UI", "UX", "FAQ", "TL", "DR", "TLDR", "LOL", "OMG", "BTW",
     "IMO", "ASAP", "FYI", "USA", "UK", "EU", "AND", "THE", "FOR", "NOT", "YES", "NO", "IT", "IS",
+    "KB", "MB", "GB", "TB", "PB", "MS", "US", "NS", "HZ", "MHZ", "GHZ", "FPS", "RPM", "ETA", "PS", "PPS",
 }
 
 SPACY_LABELS = {

@@ -13,6 +13,7 @@ from knowledgebase.text import WIKILINK, strip_wikilinks
 NODE_FIELDS = ("id", "label", "kind", "type", "importance", "community", "conversation_count", "mentions",
                "degree", "pagerank", "betweenness", "first_seen", "last_seen")
 _SENTENCE = re.compile(r"(?<=[.!?])\s+|\n+")
+_ROLE = re.compile(r"\*\*(You|Assistant):\*\*\s*")
 
 
 class NotFound(LookupError):
@@ -73,9 +74,9 @@ class KnowledgeService:
         if node_id:
             for sentence in _SENTENCE.split(text):
                 if any(m.group(1).strip().lower() == node_id for m in WIKILINK.finditer(sentence)):
-                    s = strip_wikilinks(sentence).strip()
+                    s = _ROLE.sub("", strip_wikilinks(sentence)).strip()
                     return s if len(s) <= width else s[:width].rsplit(" ", 1)[0] + " …"
-        plain = strip_wikilinks(text).strip()
+        plain = _ROLE.sub("", strip_wikilinks(text)).strip()
         return plain if len(plain) <= width else plain[:width].rsplit(" ", 1)[0] + " …"
 
     # ------------------------------------------------------------------ stats / overview
@@ -107,6 +108,11 @@ class KnowledgeService:
             per_node[e["source"]] += 1
             per_node[e["target"]] += 1
             edges.append(self._edge_view(e))
+        if community is None and len(nodes) > 10:
+            # Places with no route to anything else on the overview float off on their own and
+            # just shrink the map; they are still one click away via search or a neighbour.
+            connected = {e["source"] for e in edges} | {e["target"] for e in edges}
+            nodes = [n for n in nodes if n["id"] in connected]
         return {
             "nodes": [self.node_summary(n["id"]) for n in nodes],
             "edges": edges,

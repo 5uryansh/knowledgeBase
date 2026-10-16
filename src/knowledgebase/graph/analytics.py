@@ -89,7 +89,7 @@ def compute_analytics(graph: KnowledgeGraph, seed: int = 42) -> KnowledgeGraph:
         top = members[:5]
         graph.communities.append({
             "id": c,
-            "label": " · ".join(graph.nodes[m]["label"] for m in top[:3]),
+            "label": " & ".join(graph.nodes[m]["label"] for m in top[:2]),
             "size": len(members),
             "top_nodes": top,
         })

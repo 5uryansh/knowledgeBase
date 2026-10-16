@@ -58,7 +58,7 @@ def load_spacy(model: str):
 class ConceptExtractor:
     """Turns a conversation into a ranked list of canonical concepts."""
 
-    VERSION = "6"
+    VERSION = "7"
 
     def __init__(self, settings: Settings, nlp=None):
         self.settings = settings
