@@ -60,3 +60,19 @@ def test_html_to_markdown_never_emits_turn_headings():
     md = html_to_markdown("<h2>Title</h2><p>Some <strong>bold</strong> text</p><ul><li>one</li></ul>")
     assert "## " not in md
     assert "**bold**" in md and "- one" in md
+
+
+def test_claude_code_sessions_are_read_from_home_when_not_exported(tmp_path, monkeypatch):
+    from knowledgebase.config import Settings
+    from knowledgebase.pipeline import parse_exports
+
+    home = tmp_path / "home"
+    proj = home / ".claude" / "projects" / "-home-me-repo"
+    proj.mkdir(parents=True)
+    (proj / "s.jsonl").write_text(json.dumps({"type": "user", "message": {"content": "hello from the CLI"},
+                                              "timestamp": "2026-01-01T00:00:00Z"}))
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.chdir(tmp_path)  # no data/ folder here
+    convs = parse_exports(Settings())
+    assert [c.platform for c in convs] == ["claude-code"]
+    assert convs[0].messages[0].text == "hello from the CLI"

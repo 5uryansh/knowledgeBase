@@ -13,7 +13,7 @@ import numpy as np
 from tqdm import tqdm
 
 from knowledgebase import __version__
-from knowledgebase.config import Settings
+from knowledgebase.config import DEFAULT_EXPORTS, Settings
 from knowledgebase.enrichment.concepts import Concept, ConceptExtractor
 from knowledgebase.enrichment.linker import Linker
 from knowledgebase.enrichment.obsidian_style import ObsidianGraphStyle
@@ -58,6 +58,9 @@ def parse_exports(settings: Settings) -> list[Conversation]:
     for platform, rel in settings.exports.items():
         parser_cls = PARSERS.get(platform)
         path = Path(rel).expanduser()
+        if platform == "claude-code" and not path.exists() and rel == DEFAULT_EXPORTS["claude-code"]:
+            # No copied export: read Claude Code's own session store directly.
+            path = Path("~/.claude/projects").expanduser()
         if parser_cls is None or not path.exists():
             log.info("Skipping %s: %s not found", platform, path)
             continue

@@ -46,7 +46,7 @@ With your own data:
 #   data/chatgpt/conversations.json
 #   data/claude/conversations.json
 #   data/gemini/Takeout/My Activity/Gemini Apps/MyActivity.json
-#   data/claude-code/projects/            (copy of ~/.claude/projects)
+#   data/claude-code/projects/            (optional: ~/.claude/projects is read directly otherwise)
 kb build                               # parse → vault → graph → index
 kb serve                               # explorer + REST API + MCP on port 3001
 kb search "how did I fix the e-ink ghosting"

@@ -8,7 +8,7 @@ exports:
   chatgpt: data/chatgpt/conversations.json
   claude: data/claude/conversations.json
   gemini: data/gemini/Takeout/My Activity/Gemini Apps/MyActivity.json
-  claude-code: data/claude-code/projects        # a copy of ~/.claude/projects
+  claude-code: data/claude-code/projects        # if missing, ~/.claude/projects is read directly
 
 embedder: auto            # auto | sentence-transformers | wordllama | none
 embed_model: BAAI/bge-small-en-v1.5
