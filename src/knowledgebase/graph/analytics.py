@@ -57,12 +57,7 @@ def compute_analytics(graph: KnowledgeGraph, seed: int = 42) -> KnowledgeGraph:
         for m in members:
             community_of[m] = idx
 
-    k = min(n, 300)
-    betweenness = (
-        nx.betweenness_centrality(G, k=k, weight="distance", seed=seed, normalized=True)
-        if G.number_of_edges()
-        else {}
-    )
+    betweenness = approximate_betweenness(G, seed=seed) if G.number_of_edges() else {}
 
     max_pr = max(pagerank.values()) or 1.0
     for node_id, node in graph.nodes.items():
@@ -100,6 +95,24 @@ def compute_analytics(graph: KnowledgeGraph, seed: int = 42) -> KnowledgeGraph:
 
 
 MIN_SPECIFICITY = 0.45
+
+
+def backbone(G: nx.Graph, per_node: int = 8) -> nx.Graph:
+    """Keep each node's strongest edges only: preserves the structure that matters for paths and
+    bridges while cutting the edge count (and betweenness cost) several-fold on dense graphs."""
+    B = nx.Graph()
+    B.add_nodes_from(G)
+    for u in G:
+        strongest = sorted(G[u].items(), key=lambda t: -t[1]["weight"])[:per_node]
+        for v, data in strongest:
+            B.add_edge(u, v, **data)
+    return B
+
+
+def approximate_betweenness(G: nx.Graph, seed: int = 42, samples: int = 128) -> dict[str, float]:
+    B = backbone(G)
+    return nx.betweenness_centrality(B, k=min(B.number_of_nodes(), samples), weight="distance", seed=seed,
+                                     normalized=True)
 
 
 def discover(graph: KnowledgeGraph, G: nx.Graph, limit: int = 12) -> dict:
