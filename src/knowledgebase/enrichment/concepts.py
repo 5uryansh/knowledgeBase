@@ -58,7 +58,7 @@ def load_spacy(model: str):
 class ConceptExtractor:
     """Turns a conversation into a ranked list of canonical concepts."""
 
-    VERSION = "4"
+    VERSION = "6"
 
     def __init__(self, settings: Settings, nlp=None):
         self.settings = settings
@@ -83,6 +83,7 @@ class ConceptExtractor:
     # ------------------------------------------------------------------ helpers
     def canonical(self, surface: str) -> tuple[str, str]:
         surface = re.sub(r"\s+", " ", surface).strip()
+        surface = re.sub(r"\b([A-Z]{2,})s\b", r"\1", surface)  # GPUs -> GPU, LLMs -> LLM
         display = self.aliases.get(surface.lower(), surface)
         return normalize_node_name(display), display
 

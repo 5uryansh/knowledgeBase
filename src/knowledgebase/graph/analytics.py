@@ -19,6 +19,7 @@ from datetime import date
 import networkx as nx
 
 from knowledgebase.graph.model import KnowledgeGraph
+from knowledgebase.graph.specificity import specificity
 
 log = logging.getLogger(__name__)
 
@@ -70,10 +71,13 @@ def compute_analytics(graph: KnowledgeGraph, seed: int = 42) -> KnowledgeGraph:
         node["community"] = community_of.get(node_id, -1)
         node["betweenness"] = round(betweenness.get(node_id, 0.0), 6)
         node["degree"] = G.degree(node_id) if node_id in G else 0
-        # Importance blends structural centrality with how often you actually came back to it.
-        node["importance"] = round(
-            0.6 * (pr / max_pr) + 0.4 * min(1.0, math.log1p(node.get("conversation_count", 0)) / math.log(50)), 6
-        )
+        # Centrality blends structural position with how often you actually came back to it;
+        # importance (what the explorer shows first) also favours specific concepts over generic words.
+        centrality = 0.6 * (pr / max_pr) + 0.4 * min(1.0, math.log1p(node.get("conversation_count", 0)) / math.log(50))
+        spec = specificity(node.get("label", node_id), node.get("kind", "topic"), node.get("type", ""))
+        node["specificity"] = spec
+        node["centrality"] = round(centrality, 6)
+        node["importance"] = round(centrality * (0.3 + 0.7 * spec), 6)
 
     # Community summaries
     members_by_c: dict[int, list[str]] = defaultdict(list)
@@ -95,14 +99,18 @@ def compute_analytics(graph: KnowledgeGraph, seed: int = 42) -> KnowledgeGraph:
     return graph
 
 
+MIN_SPECIFICITY = 0.45
+
+
 def discover(graph: KnowledgeGraph, G: nx.Graph, limit: int = 12) -> dict:
     nodes = graph.nodes
+    specific = {n for n, d in nodes.items() if d.get("specificity", 1.0) >= MIN_SPECIFICITY}
     out: dict[str, list] = {"bridges": [], "unexpected_links": [], "hidden_connections": [], "forgotten": []}
     if G.number_of_edges() == 0:
         return out
 
     # Bridges: high betweenness + neighbours spread over several communities.
-    for node_id in sorted(nodes, key=lambda v: -nodes[v].get("betweenness", 0))[: limit * 4]:
+    for node_id in sorted(specific, key=lambda v: -nodes[v].get("betweenness", 0))[: limit * 4]:
         nbr_comms = Counter(nodes[o].get("community", -1) for o in G.neighbors(node_id))
         own = nodes[node_id].get("community", -1)
         others = [c for c, cnt in nbr_comms.most_common() if c != own and cnt >= 1]
@@ -119,25 +127,29 @@ def discover(graph: KnowledgeGraph, G: nx.Graph, limit: int = 12) -> dict:
     cross = [
         e for e in graph.edges
         if e.get("strength", 0) > 0
-        and e["source"] in nodes and e["target"] in nodes
+        and e["source"] in specific and e["target"] in specific
         and nodes[e["source"]].get("community") != nodes[e["target"]].get("community")
         and e.get("conversations", 0) >= 2
     ]
-    cross.sort(key=lambda e: -(e["npmi"] * math.log1p(e["conversations"])))
+    spec = lambda n: nodes[n].get("specificity", 1.0)  # noqa: E731
+    cross.sort(key=lambda e: -(e["npmi"] * math.log1p(e["conversations"]) * spec(e["source"]) * spec(e["target"])))
     out["unexpected_links"] = [
         {"source": e["source"], "target": e["target"], "npmi": e["npmi"], "conversations": e["conversations"]}
         for e in cross[:limit]
     ]
 
     # Hidden connections: not adjacent, many strong shared neighbours (Adamic–Adar), among important nodes.
-    candidates = sorted(nodes, key=lambda v: -nodes[v].get("importance", 0))[:400]
+    # Hidden connections: recurring concepts that were *never* mentioned in the same context.
+    ever_together = {(e["source"], e["target"]) for e in graph.edges} | {(e["target"], e["source"]) for e in graph.edges}
+    candidates = sorted((n for n in specific if nodes[n].get("conversation_count", 0) >= 2),
+                        key=lambda v: -nodes[v].get("importance", 0))[:400]
     cand_set = set(candidates)
     pairs = set()
     for node_id in candidates:
         nbrs = sorted(G[node_id].items(), key=lambda t: -t[1]["weight"])[:15]
         for mid, _ in nbrs:
             for other, _w in sorted(G[mid].items(), key=lambda t: -t[1]["weight"])[:15]:
-                if other != node_id and other in cand_set and not G.has_edge(node_id, other):
+                if other != node_id and other in cand_set and (node_id, other) not in ever_together:
                     pairs.add((min(node_id, other), max(node_id, other)))
     scored = []
     for a, b, score in nx.adamic_adar_index(G, list(pairs)):
@@ -152,7 +164,8 @@ def discover(graph: KnowledgeGraph, G: nx.Graph, limit: int = 12) -> dict:
     if dates:
         latest = max(dates)
         forgotten = []
-        for node_id, node in nodes.items():
+        for node_id in specific:
+            node = nodes[node_id]
             last = _parse_date(node.get("last_seen"))
             if not last or node.get("conversation_count", 0) < 2:
                 continue

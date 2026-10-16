@@ -80,7 +80,13 @@ class KnowledgeGraph:
         return out
 
     def edges_between(self, node_ids: set[str]) -> list[dict]:
-        return [e for e in self.edges if e["source"] in node_ids and e["target"] in node_ids and e.get("strength", 0) > 0]
+        out, seen = [], set()
+        for node in node_ids:
+            for other, edge in self.adjacency.get(node, []):
+                if other in node_ids and edge.get("strength", 0) > 0 and id(edge) not in seen:
+                    seen.add(id(edge))
+                    out.append(edge)
+        return out
 
     def top_nodes(self, limit: int = 60, per_community_cap: float = 0.35) -> list[dict]:
         """Most important nodes, but diversified so one community can't take over the overview."""

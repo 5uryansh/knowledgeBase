@@ -124,7 +124,10 @@ def build_graph(
     conversations: list[Conversation],
     vocabulary: ConceptVocabulary,
     linked_by_conv: dict[str, list[str]],
+    canonical_labels: set[str] | None = None,
 ) -> KnowledgeGraph:
+    """``canonical_labels``: lowercase labels whose spelling is fixed by the alias file."""
+    canonical_labels = canonical_labels or set()
     cooc = CooccurrenceBuilder()
     relations = RelationExtractor()
     platforms: dict[str, Counter] = defaultdict(Counter)
@@ -151,7 +154,18 @@ def build_graph(
             continue  # selected but never linked in text
         concept = entry.concept()
         d = sorted(dates.get(node_id, []))
+        # Label = how you actually write it most often ("vLLM", "partial refresh"), unless an alias
+        # file defines the canonical spelling.
         label = concept.display
+        if surfaces[node_id] and concept.display.lower() not in canonical_labels:
+            ranked = surfaces[node_id].most_common()
+            if concept.kind == "topic":  # prefer the singular/lemma spelling: "Kernel", not "Kernels"
+                same = [s for s, _ in ranked if s.lower() == concept.display.lower()]
+                label = same[0] if same else ranked[0][0]
+            else:
+                label = ranked[0][0]
+            if label.islower():
+                label = label[:1].upper() + label[1:]
         nodes[node_id] = {
             "id": node_id,
             "label": label,
@@ -215,7 +229,8 @@ def build(
         linked_by_conv[conv.uid] = linked
         chunks.extend(chunker.chunk_conversation(conv, linked, source=conversation_relpath(conv)))
 
-    graph = build_graph(convs, vocabulary, linked_by_conv)
+    canonical = {k for k, v in extractor.aliases.items() if k == v.lower()}
+    graph = build_graph(convs, vocabulary, linked_by_conv, canonical)
     check_memory_or_exit(context="after building the graph")
 
     if isinstance(embedder, str):

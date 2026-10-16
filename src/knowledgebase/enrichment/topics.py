@@ -57,7 +57,9 @@ class TopicExtractor:
                 if not tokens or all(t.pos_ == "PROPN" for t in tokens) and len(tokens) > 1:
                     continue
                 surface = doc.text[tokens[0].idx : tokens[-1].idx + len(tokens[-1].text)]
-                lemma = " ".join([t.text.lower() for t in tokens[:-1]] + [tokens[-1].lemma_.lower()])
+                head = tokens[-1]
+                head_lemma = head.text[:-1] if re.fullmatch(r"[A-Z]{2,}s", head.text) else head.lemma_
+                lemma = " ".join([t.text.lower() for t in tokens[:-1]] + [head_lemma.lower()])
                 if not self.valid(lemma):
                     continue
                 lemma_of[surface.lower()] = lemma
@@ -71,7 +73,8 @@ class TopicExtractor:
                     words = words[1:]
                 kw = " ".join(words)
                 kw = lemma_of.get(kw, kw)
-                if self.valid(kw):
+                # YAKE also proposes adjectives/verbs ("huge", "happening"): only let it boost
+                # phrases that spaCy also saw as noun phrases.
+                if kw in counter and self.valid(kw):
                     counter[kw] += 2
-                    surfaces.setdefault(kw, set()).add(kw)
         return counter, surfaces

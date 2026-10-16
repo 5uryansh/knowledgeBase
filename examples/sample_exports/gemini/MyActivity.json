@@ -1,0 +1,93 @@
+[
+ {
+  "header": "Gemini Apps",
+  "title": "Prompted Which small open models are good at tool calling for agents?",
+  "time": "2026-07-02T19:12:00Z",
+  "products": [
+   "Gemini Apps"
+  ],
+  "safeHtmlItem": [
+   {
+    "html": "<p>Qwen2.5 7B Instruct and Llama 3.1 8B Instruct handle function calling reasonably well, especially with a strict JSON schema and few tools. Quantized 4-bit versions keep most of that ability. Serve them with vLLM or llama.cpp using an OpenAI-compatible API so agent frameworks work unchanged, and keep tool descriptions short and explicit.</p>"
+   }
+  ]
+ },
+ {
+  "header": "Gemini Apps",
+  "title": "Prompted Best way to add dark mode with Tailwind CSS in Next.js?",
+  "time": "2026-03-20T19:12:00Z",
+  "products": [
+   "Gemini Apps"
+  ],
+  "safeHtmlItem": [
+   {
+    "html": "<p>Set darkMode: &#x27;class&#x27; in the Tailwind config (or use the selector strategy in Tailwind v4) and toggle a dark class on the html element. The next-themes package handles persistence and avoids the flash of the wrong theme by injecting a small script before hydration. Then use dark: variants like dark:bg-zinc-900 in your components.</p>"
+   }
+  ]
+ },
+ {
+  "header": "Gemini Apps",
+  "title": "Prompted Explain Personalized PageRank like I'm a developer.",
+  "time": "2026-02-20T19:12:00Z",
+  "products": [
+   "Gemini Apps"
+  ],
+  "safeHtmlItem": [
+   {
+    "html": "<p>Imagine a random walker on a graph. At every step it either follows an edge, with probability d (the damping factor), or teleports back to a seed node. Plain PageRank teleports to any node; Personalized PageRank teleports only to the seeds you choose, for example the entities mentioned in a query. After many steps, the visit frequency of each node measures how relevant it is to the seeds. You compute it by power iteration with a sparse transition matrix, which takes milliseconds on graphs with millions of edges.</p>"
+   }
+  ]
+ },
+ {
+  "header": "Gemini Apps",
+  "title": "Prompted Set up GitHub Actions to run pytest and ruff on every pull request.",
+  "time": "2026-01-30T19:12:00Z",
+  "products": [
+   "Gemini Apps"
+  ],
+  "safeHtmlItem": [
+   {
+    "html": "<p>Create .github/workflows/ci.yml triggered on pull_request and push to main. Use actions/checkout, actions/setup-python with cache: pip, install with pip install -e .[dev], then run ruff check . and pytest -q. Add a matrix over Python 3.10-3.12 if you support several versions. Protect main so the CI check is required before merging.</p>"
+   }
+  ]
+ },
+ {
+  "header": "Gemini Apps",
+  "title": "Prompted Should my ESP32 sensors use MQTT or HTTP to send readings to Home Assistant?",
+  "time": "2025-12-20T19:12:00Z",
+  "products": [
+   "Gemini Apps"
+  ],
+  "safeHtmlItem": [
+   {
+    "html": "<p>MQTT is usually better: it is lightweight, keeps a persistent connection and Home Assistant has native MQTT discovery, so sensors appear automatically. Run the Mosquitto broker as a Home Assistant add-on or in Docker. HTTP is simpler for battery devices that wake rarely, because MQTT&#x27;s connection setup costs energy each time. For deep-sleep devices, publish with QoS 1 and retain so the last value is available.</p>"
+   }
+  ]
+ },
+ {
+  "header": "Gemini Apps",
+  "title": "Prompted What exactly is the KV cache in transformers and why does it use so much memory?",
+  "time": "2025-12-15T19:12:00Z",
+  "products": [
+   "Gemini Apps"
+  ],
+  "safeHtmlItem": [
+   {
+    "html": "<p>During autoregressive decoding, each new token attends to all previous tokens. Instead of recomputing keys and values for the whole prefix every step, the model stores them: that store is the KV cache. Its size is 2 x layers x heads x head_dim x sequence length x batch x bytes per value. For long contexts it can exceed the model weights. Techniques that reduce it: grouped-query attention (GQA), KV cache quantization to int8 or fp8, and paging as in vLLM&#x27;s PagedAttention.</p>"
+   }
+  ]
+ },
+ {
+  "header": "Gemini Apps",
+  "title": "Prompted Are new video world models diffusion models or transformers?",
+  "time": "2025-12-03T19:12:00Z",
+  "products": [
+   "Gemini Apps"
+  ],
+  "safeHtmlItem": [
+   {
+    "html": "<p>Both, often combined: a diffusion transformer (DiT) uses a transformer backbone to denoise latent video patches. Action-conditioned versions predict the next frames given an action, which turns a video generator into an interactive world model for agents and robotics. Training such models needs large GPU clusters and efficient attention kernels like FlashAttention.</p>"
+   }
+  ]
+ }
+]

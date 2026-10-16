@@ -31,6 +31,7 @@ class FusionConfig:
     w_graph: float = 1.25
     first_stage_k: int = 5  # first-stage hits that seed the graph walk
     candidates: int = 200
+    max_per_conversation: int = 0  # >0: diversify top-k across conversations (0 = off)
 
     @classmethod
     def for_embedder(cls, embedder_name: str | None) -> "FusionConfig":
@@ -139,7 +140,21 @@ class HybridRetriever:
             fused = self._rrf([(ranking, weights[name]) for name, ranking in signals.items()])
 
         rank_of = {name: {i: r + 1 for r, i in enumerate(ranking)} for name, ranking in signals.items()}
-        top = sorted(fused.items(), key=lambda t: -t[1])[:k]
+        ordered = sorted(fused.items(), key=lambda t: -t[1])
+        if f.max_per_conversation > 0:
+            per_conv: dict[str, int] = {}
+            kept, overflow = [], []
+            for i, score in ordered:
+                cid = self.index.chunks[i].conversation_id
+                if per_conv.get(cid, 0) < f.max_per_conversation:
+                    per_conv[cid] = per_conv.get(cid, 0) + 1
+                    kept.append((i, score))
+                else:
+                    overflow.append((i, score))
+                if len(kept) >= k:
+                    break
+            ordered = kept + overflow
+        top = ordered[:k]
         results = []
         for r, (i, score) in enumerate(top, start=1):
             via = self.index.graph_retriever.explain(i, concept_scores) if concept_scores is not None else []

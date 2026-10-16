@@ -211,7 +211,7 @@ class GraphRetriever:
 
     def explain(self, chunk_index: int, concept_scores: np.ndarray, top: int = 3) -> list[str]:
         """Concepts that carried the most activation into this chunk — the 'why'."""
-        ids = self.chunk_concepts[chunk_index]
+        ids = [i for i in self.chunk_concepts[chunk_index] if not self.hub[i]]
         ranked = sorted(ids, key=lambda i: -concept_scores[i] * self.idf[i])
         return [self.concepts[i] for i in ranked[:top] if concept_scores[i] > 0]
 

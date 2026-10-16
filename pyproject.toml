@@ -24,12 +24,15 @@ dependencies = [
 [project.optional-dependencies]
 # Best quality (default on a normal machine): transformer embeddings + GLiNER entities.
 ml = [
+    "wordfreq>=3.0",
     "sentence-transformers>=3.0",
     "gliner>=0.2.10",
     "faiss-cpu>=1.8",
 ]
 # Tiny, torch-free static embeddings (~16 MB, ships its weights inside the wheel).
 lite = ["wordllama>=0.3"]
+# Better "specificity" scores for the graph explorer and discoveries (~57 MB of word frequencies).
+quality = ["wordfreq>=3.0"]
 dev = ["pytest>=8", "httpx>=0.27"]
 
 [project.scripts]
