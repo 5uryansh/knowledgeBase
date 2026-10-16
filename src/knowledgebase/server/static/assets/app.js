@@ -472,7 +472,7 @@ async function ensureNode(id) {
 
 async function openConcept(id, { pushHistory = true } = {}) {
   setMode(null);
-  showPanel(`<p class="loading">Opening the gazetteer…</p>`);
+  showLoading("Opening the gazetteer…");
   let detail;
   try {
     detail = await api(`/api/graph/node/${encodeURIComponent(id)}?limit=30`);
@@ -496,7 +496,14 @@ async function openConcept(id, { pushHistory = true } = {}) {
 }
 
 // ------------------------------------------------------------------ panel rendering
-function showPanel(html) {
+// Show a loading line only if the request is actually slow (avoids flashing on fast local calls).
+let loadingTimer = null;
+function showLoading(text) {
+  clearTimeout(loadingTimer);
+  loadingTimer = setTimeout(() => showPanel(`<p class="loading">${esc(text)}</p>`, true), 250);
+}
+function showPanel(html, isLoading = false) {
+  if (!isLoading) clearTimeout(loadingTimer);
   const body = $("#panel-body");
   body.innerHTML = html;
   body.scrollTop = 0;
@@ -650,7 +657,7 @@ function choose(item) {
 
 async function runSearch(q, { pushHistory = true } = {}) {
   setMode(null);
-  showPanel(`<p class="loading">Searching your conversations…</p>`);
+  showLoading("Searching your conversations…");
   const data = await api(`/api/search?q=${encodeURIComponent(q)}&k=10`);
   if (pushHistory) state.history.push({ type: "search", q });
   // Light up the matched concepts on the map.
@@ -676,7 +683,7 @@ async function runSearch(q, { pushHistory = true } = {}) {
 
 // ------------------------------------------------------------------ reader
 async function openConversation(id, chunk, { pushHistory = true } = {}) {
-  showPanel(`<p class="loading">Opening the conversation…</p>`);
+  showLoading("Opening the conversation…");
   const data = await api(`/api/conversation/${encodeURIComponent(id)}`);
   if (pushHistory) state.history.push({ type: "conversation", id, chunk });
   const turns = data.chunks.map((c) => `<div class="turn ${c.chunk_id === chunk ? "focus" : ""}" id="chunk-${esc(c.chunk_id)}">${renderText(c.text.replace(/^\*\*(You|Assistant):\*\*\s*/gm, (_, who) => `**${who === "You" ? "You" : "Assistant"}:** `))}</div>`).join("");
@@ -693,7 +700,7 @@ discoverBtn.addEventListener("click", async () => {
   if (discoverBtn.getAttribute("aria-pressed") === "true") { setMode(null); renderIntro(await api("/api/stats")); return; }
   setMode("discover");
   state.history.push({ type: "discover" });
-  showPanel(`<p class="loading">Looking for connections you may have missed…</p>`);
+  showLoading("Looking for connections you may have missed…");
   const d = await api("/api/discover");
   setStatus("Discover: open any pair to see the route between them on the map.");
   const pair = (a, al, b, bl, extra = "") => `<li><button type="button" class="row-btn" data-route="${esc(a)}|${esc(b)}">

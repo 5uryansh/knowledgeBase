@@ -7,7 +7,7 @@
 > Turn every conversation you've had with ChatGPT, Claude, Gemini and Claude Code into one connected
 > knowledge graph that you can explore, search and plug into your AI agents.
 
-![The atlas: the most important concepts first, grouped into regions](docs/images/atlas-overview.png)
+![The atlas: open a concept, hop to a neighbour, follow a discovered route](docs/images/atlas-demo.webp)
 
 ---
 
@@ -63,6 +63,8 @@ Re-running it is cheap: parsing is idempotent and concept extraction is cached p
 ---
 
 ## The atlas (graph explorer)
+
+![The atlas overview: the most important concepts first, grouped into regions](docs/images/atlas-overview.png)
 
 The browser never loads the whole graph. It opens with the ~50 most important concepts — PageRank blended
 with how often you came back to a topic, discounted for generic words — grouped into **regions**
