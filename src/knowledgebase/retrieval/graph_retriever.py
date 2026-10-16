@@ -36,16 +36,25 @@ _WORD = re.compile(r"[A-Za-z0-9][A-Za-z0-9+#.\-]*[A-Za-z0-9+#]|[A-Za-z0-9]")
 
 @dataclass
 class GraphRetrieverConfig:
-    damping: float = 0.5  # probability of continuing the walk (HippoRAG uses 0.5)
+    """Defaults were tuned on the LoCoMo *dev* split (benchmarks/tune.py) and then
+    evaluated once on the held-out test split — see benchmarks/README.md."""
+
+    damping: float = 0.7  # probability of continuing the walk at each step
     iterations: int = 30
-    concept_concept: float = 1.0
-    concept_chunk: float = 1.0
-    chunk_chunk: float = 0.3
+    concept_concept: float = 0.5  # weight of co-occurrence (NPMI strength) edges
+    concept_chunk: float = 1.0  # weight of concept-mentioned-in-chunk edges (x IDF)
+    chunk_chunk: float = 1.0  # weight of adjacent-turn edges within a conversation
     max_concept_neighbors: int = 30
-    query_seed_weight: float = 1.0
-    chunk_seed_weight: float = 0.5
-    prf_concept_weight: float = 0.3
+    query_seed_weight: float = 1.0  # concepts named in the query
+    chunk_seed_weight: float = 0.25  # first-stage hits as seeds
+    prf_concept_weight: float = 0.5  # concepts of first-stage hits (pseudo-relevance feedback)
     hub_df_ratio: float = 0.25  # concepts in more than this share of chunks get no seed mass
+    # Semantic seeding: concepts whose label embedding is closest to the query. Off by
+    # default — with static embeddings (wordllama) it hurt on the dev split; worth
+    # enabling and re-tuning with a transformer embedder.
+    semantic_seeds: int = 0
+    semantic_seed_weight: float = 0.5
+    semantic_min_sim: float = 0.35
 
 
 def _surface_key(text: str) -> tuple[str, ...]:
@@ -81,7 +90,8 @@ class ConceptMatcher:
 
 
 class GraphRetriever:
-    def __init__(self, graph: KnowledgeGraph, chunks: list[Chunk], config: GraphRetrieverConfig | None = None):
+    def __init__(self, graph: KnowledgeGraph, chunks: list[Chunk], config: GraphRetrieverConfig | None = None,
+                 concept_vectors: np.ndarray | None = None):
         self.graph = graph
         self.chunks = chunks
         self.cfg = config or GraphRetrieverConfig()
@@ -90,6 +100,8 @@ class GraphRetriever:
         self.n_concepts = len(self.concepts)
         self.n_chunks = len(chunks)
         self.matcher = ConceptMatcher(graph)
+        # Row i = embedding of concept label self.concepts[i] (optional; enables semantic seeding).
+        self.concept_vectors = concept_vectors if concept_vectors is not None and len(concept_vectors) == self.n_concepts else None
         self._build()
 
     # ------------------------------------------------------------------ build
@@ -142,7 +154,8 @@ class GraphRetriever:
         self.hub = df > max(5.0, self.cfg.hub_df_ratio * nk)
 
     # ------------------------------------------------------------------ query
-    def seeds(self, query: str, first_stage: list[tuple[int, float]] | None = None) -> tuple[np.ndarray, dict[str, float]]:
+    def seeds(self, query: str, first_stage: list[tuple[int, float]] | None = None,
+              query_vector: np.ndarray | None = None) -> tuple[np.ndarray, dict[str, float]]:
         nc = self.n_concepts
         s = np.zeros(nc + self.n_chunks, dtype=np.float64)
         matched = self.matcher.match(query)
@@ -154,6 +167,17 @@ class GraphRetriever:
             w = self.cfg.query_seed_weight * float(self.idf[i]) * span
             s[i] += w
             query_concepts[node] = w
+        if query_vector is not None and self.concept_vectors is not None and self.cfg.semantic_seeds > 0:
+            sims = self.concept_vectors @ query_vector.astype(np.float32)
+            top = np.argpartition(-sims, min(self.cfg.semantic_seeds, nc) - 1)[: self.cfg.semantic_seeds]
+            for i in top:
+                sim = float(sims[i])
+                if sim < self.cfg.semantic_min_sim or self.hub[i]:
+                    continue
+                w = self.cfg.semantic_seed_weight * sim * float(self.idf[i])
+                s[i] += w
+                node = self.concepts[i]
+                query_concepts[node] = query_concepts.get(node, 0.0) + w
         if first_stage:
             for rank, (k, _score) in enumerate(first_stage):
                 w = 1.0 / (rank + 1)
@@ -178,9 +202,10 @@ class GraphRetriever:
             r = r_next
         return r
 
-    def score(self, query: str, first_stage: list[tuple[int, float]] | None = None) -> tuple[np.ndarray, np.ndarray, dict[str, float]]:
+    def score(self, query: str, first_stage: list[tuple[int, float]] | None = None,
+              query_vector: np.ndarray | None = None) -> tuple[np.ndarray, np.ndarray, dict[str, float]]:
         """Returns (chunk scores, concept scores, query concepts)."""
-        seed, query_concepts = self.seeds(query, first_stage)
+        seed, query_concepts = self.seeds(query, first_stage, query_vector)
         r = self.personalized_pagerank(seed)
         return r[self.n_concepts:], r[: self.n_concepts], query_concepts
 

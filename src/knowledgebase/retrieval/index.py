@@ -40,15 +40,17 @@ class KnowledgeIndex:
         manifest: dict | None = None,
         graph_config: GraphRetrieverConfig | None = None,
         fusion: FusionConfig | None = None,
+        concept_vectors: np.ndarray | None = None,
     ):
         self.chunks = chunks
+        self.concept_vectors = concept_vectors
         self.graph = graph
         self.embedder = embedder
         self.vectors = vectors
         self.manifest = manifest or {}
         self.chunk_pos = {c.id: i for i, c in enumerate(chunks)}
         self.bm25 = BM25Index().fit([c.search_text for c in chunks])
-        self.graph_retriever = GraphRetriever(graph, chunks, graph_config)
+        self.graph_retriever = GraphRetriever(graph, chunks, graph_config, concept_vectors)
         self.retriever = HybridRetriever(self, fusion)
         self._by_conversation: dict[str, list[int]] | None = None
         self._by_concept: dict[str, list[int]] | None = None
@@ -79,7 +81,7 @@ class KnowledgeIndex:
     # ------------------------------------------------------------------ io
     @staticmethod
     def save(index_dir: Path, chunks: list[Chunk], graph: KnowledgeGraph, embeddings: np.ndarray | None,
-             manifest: dict) -> None:
+             manifest: dict, concept_vectors: np.ndarray | None = None) -> None:
         index_dir.mkdir(parents=True, exist_ok=True)
         with (index_dir / "chunks.jsonl").open("w", encoding="utf-8") as f:
             for c in chunks:
@@ -88,6 +90,10 @@ class KnowledgeIndex:
             np.save(index_dir / "embeddings.npy", embeddings.astype(np.float32))
         elif (index_dir / "embeddings.npy").exists():
             (index_dir / "embeddings.npy").unlink()
+        if concept_vectors is not None:  # row order = sorted(graph.nodes)
+            np.save(index_dir / "concept_embeddings.npy", concept_vectors.astype(np.float32))
+        elif (index_dir / "concept_embeddings.npy").exists():
+            (index_dir / "concept_embeddings.npy").unlink()
         graph.save(index_dir / "graph.json")
 
         # Backwards-compatible exports used by the original pipeline/README.
@@ -134,4 +140,14 @@ class KnowledgeIndex:
                 embedder = None
             else:
                 vectors = VectorStore.load(emb_path)
-        return cls(chunks, graph, embedder, vectors, manifest, graph_config, fusion)
+        concept_vectors = None
+        cv_path = index_dir / "concept_embeddings.npy"
+        if embedder is not None and cv_path.exists():
+            concept_vectors = np.load(cv_path)
+        return cls(chunks, graph, embedder, vectors, manifest, graph_config, fusion, concept_vectors)
+
+    def with_config(self, graph_config: GraphRetrieverConfig | None = None,
+                    fusion: FusionConfig | None = None) -> "KnowledgeIndex":
+        """Same data, different retrieval parameters (used by benchmarks/tuning)."""
+        return KnowledgeIndex(self.chunks, self.graph, self.embedder, self.vectors, self.manifest,
+                              graph_config, fusion, self.concept_vectors)

@@ -33,6 +33,9 @@ SPACE = {
     "prf_concept_weight": [0.0, 0.3, 1.0],
     "concept_concept": [0.0, 0.5, 1.0, 2.0],
     "chunk_chunk": [0.0, 0.1, 0.3, 1.0],
+    "semantic_seeds": [0, 3, 5, 10],
+    "semantic_seed_weight": [0.25, 0.5, 1.0, 2.0],
+    "semantic_min_sim": [0.2, 0.3, 0.4, 0.5],
 }
 FUSION_KEYS = {"w_bm25", "w_dense", "w_graph", "rrf_k", "first_stage_k"}
 
@@ -46,7 +49,7 @@ def evaluate(corpora, indexes, params: dict) -> float:
     gcfg = GraphRetrieverConfig(**{k: v for k, v in params.items() if k not in FUSION_KEYS})
     rows = []
     for corpus, base in zip(corpora, indexes):
-        index = KnowledgeIndex(base.chunks, base.graph, base.embedder, base.vectors, base.manifest, gcfg, fcfg)
+        index = base.with_config(gcfg, fcfg)
         for q in corpus.queries:
             if q.evidence:
                 ranked = [r.chunk.id for r in index.search(q.text, k=20, mode="graph_hybrid")]

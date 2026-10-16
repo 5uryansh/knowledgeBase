@@ -221,6 +221,10 @@ def build(
     if isinstance(embedder, str):
         embedder = build_embedder(settings.embedder if embedder == "auto" else embedder, settings.embed_model)
     embeddings = embed_with_cache(embedder, chunks, index_dir / "cache") if embedder else None
+    concept_vectors = None
+    if embedder:
+        ordered = sorted(graph.nodes)
+        concept_vectors = embedder.embed([graph.nodes[n]["label"] for n in ordered]) if ordered else None
 
     report = BuildReport(
         conversations=len(convs), chunks=len(chunks), nodes=len(graph.nodes), edges=len(graph.edges),
@@ -245,7 +249,7 @@ def build(
         "nodes": len(graph.nodes),
         "edges": len(graph.edges),
     }
-    KnowledgeIndex.save(index_dir, chunks, graph, embeddings, manifest)
+    KnowledgeIndex.save(index_dir, chunks, graph, embeddings, manifest, concept_vectors)
 
     if write_vault:
         writer = VaultWriter(vault)

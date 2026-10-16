@@ -177,7 +177,7 @@ def main(argv: list[str] | None = None) -> int:
     for corpus in corpora:
         index = build_corpus(corpus, work, embedder, extractor, args.rebuild)
         if gcfg or fcfg:
-            index = KnowledgeIndex(index.chunks, index.graph, index.embedder, index.vectors, index.manifest, gcfg, fcfg)
+            index = index.with_config(gcfg, fcfg)
         resolve_evidence(corpus, index)
         if args.limit_queries:
             corpus.queries = corpus.queries[: args.limit_queries]

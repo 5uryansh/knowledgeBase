@@ -23,12 +23,21 @@ MODES = ("bm25", "dense", "hybrid", "graph", "graph_hybrid")
 
 @dataclass
 class FusionConfig:
-    rrf_k: int = 60
+    """Weighted reciprocal-rank fusion. Tuned on LoCoMo dev (see benchmarks/)."""
+
+    rrf_k: int = 10
     w_bm25: float = 1.0
     w_dense: float = 1.0
-    w_graph: float = 1.0
-    first_stage_k: int = 20
+    w_graph: float = 1.25
+    first_stage_k: int = 5  # first-stage hits that seed the graph walk
     candidates: int = 200
+
+    @classmethod
+    def for_embedder(cls, embedder_name: str | None) -> "FusionConfig":
+        cfg = cls()
+        if embedder_name and embedder_name.startswith("wordllama"):
+            cfg.w_dense = 0.25  # static embeddings are a much weaker signal than BM25 (tuned on dev)
+        return cfg
 
 
 @dataclass
@@ -71,16 +80,21 @@ def _ranking(scores: np.ndarray, limit: int) -> list[int]:
 class HybridRetriever:
     def __init__(self, index, fusion: FusionConfig | None = None):
         self.index = index
-        self.fusion = fusion or FusionConfig()
+        self.fusion = fusion or FusionConfig.for_embedder(index.embedder.name if index.embedder else None)
 
     # ------------------------------------------------------------------ signals
     def _bm25(self, query: str) -> np.ndarray:
         return self.index.bm25.scores(query)
 
-    def _dense(self, query: str) -> np.ndarray | None:
-        if self.index.embedder is None or self.index.vectors is None or not len(self.index.vectors):
+    def _query_vector(self, query: str) -> np.ndarray | None:
+        if self.index.embedder is None:
             return None
-        return self.index.vectors.scores(self.index.embedder.embed_query(query))
+        return self.index.embedder.embed_query(query)
+
+    def _dense(self, qvec: np.ndarray | None) -> np.ndarray | None:
+        if qvec is None or self.index.vectors is None or not len(self.index.vectors):
+            return None
+        return self.index.vectors.scores(qvec)
 
     def _rrf(self, rankings: list[tuple[list[int], float]]) -> dict[int, float]:
         fused: dict[int, float] = {}
@@ -99,11 +113,12 @@ class HybridRetriever:
             return []
         signals: dict[str, list[int]] = {}
         concept_scores = None
+        qvec = self._query_vector(query) if mode in ("dense", "hybrid", "graph", "graph_hybrid") else None
 
         if mode in ("bm25", "hybrid", "graph_hybrid"):
             signals["bm25"] = _ranking(self._bm25(query), f.candidates)
         if mode in ("dense", "hybrid", "graph_hybrid"):
-            dense = self._dense(query)
+            dense = self._dense(qvec)
             if dense is not None:
                 signals["dense"] = _ranking(dense, f.candidates)
 
@@ -113,7 +128,7 @@ class HybridRetriever:
                 fs = self._rrf([(signals.get("bm25", []), f.w_bm25), (signals.get("dense", []), f.w_dense)])
                 top = sorted(fs.items(), key=lambda t: -t[1])[: f.first_stage_k]
                 first_stage = [(i, s) for i, s in top]
-            chunk_scores, concept_scores, _ = self.index.graph_retriever.score(query, first_stage)
+            chunk_scores, concept_scores, _ = self.index.graph_retriever.score(query, first_stage, qvec)
             signals["graph"] = _ranking(chunk_scores, f.candidates)
 
         weights = {"bm25": f.w_bm25, "dense": f.w_dense, "graph": f.w_graph}
