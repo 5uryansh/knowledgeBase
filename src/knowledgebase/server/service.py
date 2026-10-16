@@ -282,6 +282,33 @@ class KnowledgeService:
     def search_nodes(self, q: str, limit: int = 10) -> list[dict]:
         return [self.node_summary(n["id"]) for n in self.graph.search_nodes(q, limit=limit)]
 
+    def activity(self, when: str = "last month", limit: int = 15, today=None) -> dict:
+        """What you were working on in a period: conversations, recurring concepts and new ones."""
+        from knowledgebase.retrieval.timefilter import parse_time_window
+
+        window = parse_time_window(when, today) or parse_time_window(f"in {when}", today)
+        if window is None:
+            raise ValueError(f"Couldn't understand the period {when!r}; try 'last month', 'March 2026' or 'last spring'.")
+        idx, g = self.index, self.graph
+        hub = idx.graph_retriever.hub
+        concept_pos = idx.graph_retriever.concept_idx
+        convs, concept_convs = [], Counter()
+        for conv_id, positions in idx.by_conversation.items():
+            first = idx.chunks[positions[0]]
+            if not window.matches(first.date):
+                continue
+            counts = Counter(l for i in positions for l in idx.chunks[i].links
+                             if l in g.nodes and not hub[concept_pos[l]] and g.nodes[l].get("specificity", 1) >= 0.45)
+            concept_convs.update(counts.keys())
+            convs.append({"conversation_id": conv_id, "title": first.title, "date": first.date,
+                          "platform": first.platform, "turns": len(positions),
+                          "concepts": [g.nodes[c]["label"] for c, _ in counts.most_common(5)]})
+        convs.sort(key=lambda c: c["date"], reverse=True)
+        top = [{**self.node_summary(n), "conversations_in_period": k} for n, k in concept_convs.most_common(20)]
+        new = [t for t in top if t.get("first_seen") and window.matches(t["first_seen"])]
+        return {"period": window.label, "conversation_count": len(convs), "conversations": convs[:limit],
+                "concepts": top, "new_concepts": new[:10]}
+
     def conversation(self, conversation_id: str, around: str | None = None, window: int = 3) -> dict:
         idx = self.index
         positions = idx.by_conversation.get(conversation_id)

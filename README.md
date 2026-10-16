@@ -39,7 +39,7 @@ kb demo                                # builds the bundled sample chats and ope
 #   → http://127.0.0.1:3001/api/mcp     (MCP endpoint)
 ```
 
-With your own data:
+With your own data ([how to get your exports](docs/exports.md)):
 
 ```bash
 # put your exports where kb looks by default (or pass --export / use kb.yaml)
@@ -113,6 +113,7 @@ at **`http://127.0.0.1:3001/api/mcp`**.
 | `discover` | bridges, unexpected links, hidden connections, forgotten topics |
 | `get_conversation` | read a conversation (or the turns around a passage) |
 | `top_concepts` | the central concepts and themes of your graph |
+| `recent_activity` | what you worked on in a period ("last week", "March 2026", "last spring"): conversations, recurring and new concepts |
 
 ```bash
 # Claude Code

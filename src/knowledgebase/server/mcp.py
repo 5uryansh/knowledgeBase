@@ -117,6 +117,24 @@ TOOLS: list[dict] = [
         "annotations": READ_ONLY,
     },
     {
+        "name": "recent_activity",
+        "title": "What was I working on?",
+        "description": (
+            "Conversations and concepts from a period of time — 'last week', 'last month', 'March 2026', "
+            "'last spring', '2025'. Shows what the user focused on, which topics recurred and which were new. "
+            "Use it to catch up on the user's recent work before helping with it."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "when": {"type": "string", "default": "last month",
+                         "description": "Natural-language period, e.g. 'last week', 'March 2026', 'last spring'."},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 50, "default": 15},
+            },
+        },
+        "annotations": READ_ONLY,
+    },
+    {
         "name": "top_concepts",
         "title": "Most important concepts",
         "description": "The most central concepts of the knowledge graph and its main communities (themes).",
@@ -226,6 +244,7 @@ class MCPHandler:
             "discover": self._discover,
             "get_conversation": self._conversation,
             "top_concepts": self._top,
+            "recent_activity": self._activity,
         }
 
     def _search(self, a: dict):
@@ -247,6 +266,20 @@ class MCPHandler:
     def _conversation(self, a: dict):
         d = self.service.conversation(a["conversation_id"], a.get("chunk_id"))
         return _fmt_conversation(d), d
+
+    def _activity(self, a: dict):
+        d = self.service.activity(a.get("when", "last month"), limit=int(a.get("limit", 15)))
+        lines = [f"{d['period']}: {d['conversation_count']} conversations"]
+        if d["concepts"]:
+            lines.append("Recurring: " + ", ".join(f"{c['label']} ({c['conversations_in_period']})" for c in d["concepts"][:12]))
+        if d["new_concepts"]:
+            lines.append("New in this period: " + ", ".join(c["label"] for c in d["new_concepts"]))
+        for c in d["conversations"]:
+            lines.append(f"- {c['date']} · {c['title']} ({c['platform']}) — {', '.join(c['concepts'])} "
+                         f"conversation_id={c['conversation_id']}")
+        if not d["conversations"]:
+            lines.append("No conversations in this period.")
+        return "\n".join(lines), d
 
     def _top(self, a: dict):
         d = self.service.overview(limit=int(a.get("limit", 25)))

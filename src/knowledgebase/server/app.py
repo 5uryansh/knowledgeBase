@@ -88,6 +88,14 @@ def create_app(index_dir: Path, embedder: str = "auto", embed_model: str | None 
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
 
+    @app.get("/api/activity")
+    def activity(when: str = "last month", limit: int = Query(15, ge=1, le=100)):
+        guard()
+        try:
+            return service.activity(when, limit=limit)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
     @app.get("/api/discover")
     def discover():
         guard()

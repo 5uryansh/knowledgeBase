@@ -69,7 +69,7 @@ def test_mcp_handshake_and_tools(client):
     assert rpc(client, "notifications/initialized", id_=None).status_code == 202
     tools = rpc(client, "tools/list").json()["result"]["tools"]
     assert {t["name"] for t in tools} == {"search_knowledge", "explore_concept", "find_connection", "discover",
-                                         "get_conversation", "top_concepts"}
+                                         "get_conversation", "top_concepts", "recent_activity"}
     assert all(t["inputSchema"]["type"] == "object" for t in tools)
 
 
@@ -84,6 +84,7 @@ def test_mcp_unknown_version_falls_back_to_latest(client):
     ("find_connection", {"source": "ESP32", "target": "Quantization"}),
     ("discover", {}),
     ("top_concepts", {"limit": 10}),
+    ("recent_activity", {"when": "2026"}),
 ])
 def test_mcp_tool_calls(client, name, args):
     res = rpc(client, "tools/call", {"name": name, "arguments": args}).json()["result"]
@@ -127,3 +128,11 @@ def test_static_export(demo_vault, tmp_path):
     exported = {p.stem for p in (site / "data" / "nodes").glob("*.json")}
     assert all(nb["id"] in exported for nb in detail["neighbors"])
     assert not (site / "data" / "conversations").exists()  # private text is opt-in
+
+
+def test_activity(client):
+    d = client.get("/api/activity", params={"when": "January 2026"}).json()
+    assert d["period"] == "January 2026" and d["conversation_count"] >= 3
+    assert all(c["date"].startswith("2026-01") for c in d["conversations"])
+    assert d["concepts"]
+    assert client.get("/api/activity", params={"when": "whenever"}).status_code == 400
