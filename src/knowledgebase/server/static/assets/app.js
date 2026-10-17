@@ -360,9 +360,6 @@ function commit() {
   Graph.graphData({ nodes: [...state.nodes.values()], links: [...state.links.values()] });
 }
 
-// Settlement hierarchy, as on a printed map. Raw importance is nearly flat across the
-// overview (every place came out the same size), so rank is used instead: each region's
-// most important place is its capital, the upper third are towns, the rest are hamlets.
 // A place's tier is decided once, so nothing on the map changes size when neighbours arrive.
 function computeTiers() {
   const fresh = [...state.nodes.values()].filter((n) => !n.tier)
@@ -374,9 +371,20 @@ function computeTiers() {
   }
   for (const n of fresh) {
     const c = n.community;
-    if (c != null && c >= 0 && !state.capitals.has(c)) { state.capitals.set(c, n.id); n.tier = "capital"; }
-    else n.tier = (n.importance || 0) >= state.townCut ? "town" : "hamlet";
+    const names = namesakes(c);
+    if (names.length ? names.includes(n.id) : c != null && c >= 0 && !state.capitals.has(c)) {
+      state.capitals.set(c, n.id);
+      n.tier = "capital";
+    } else n.tier = (n.importance || 0) >= state.townCut ? "town" : "hamlet";
   }
+}
+
+// A region is named after its leading places ("SIGTERM & Bitbucket" = its first two
+// top_nodes), so every place in the name gets the capital ring, not just the first.
+function namesakes(c) {
+  const r = state.communities.get(c);
+  if (!r || !Array.isArray(r.top_nodes) || !r.label) return [];
+  return r.top_nodes.slice(0, r.label.split(" & ").length);
 }
 
 async function loadOverview() {
