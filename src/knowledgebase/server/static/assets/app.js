@@ -5,12 +5,13 @@
 
 const $ = (sel) => document.querySelector(sel);
 const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-const ANIM = prefersReducedMotion ? 0 : 600;
+const ANIM = prefersReducedMotion ? 0 : 750;
+const GROW = 520;  // ms for a new place to grow in
+const easeOut = (t) => 1 - (1 - t) ** 3;
+const grown = (n) => (n.bornAt ? easeOut(Math.min(1, (performance.now() - n.bornAt) / GROW)) : 1);
 const NEIGHBOURS_ON_MAP = 16;
 
-// Atlas tints for regions (communities); paired with a darker ink for node fills.
-const TINTS_LIGHT = ["#cfe0c3", "#f0d9a8", "#e6c7d3", "#c7d9e8", "#ddd0ea", "#c9e4dc", "#ead9c0", "#f1cdbd", "#d8dfb4", "#cbd3ea", "#e9c9c0", "#d2e6ef"];
-const TINTS_DARK = ["#3e5a3a", "#6b5a2e", "#5e3c4b", "#33506a", "#4c3f63", "#2f5a52", "#5e4e36", "#6a4436", "#4f5a2f", "#3b4670", "#64403a", "#2f5866"];
+// Region (community) colours for place symbols, one set per theme.
 const NODE_LIGHT = ["#5d8a4a", "#b2862a", "#a55878", "#3f7aa6", "#7a5fa6", "#3d8a78", "#9c7a4a", "#b56446", "#7d8a32", "#5468a8", "#a35b4f", "#3c8aa6"];
 const NODE_DARK = ["#8fbf7a", "#e0b75c", "#d68aa9", "#7fb2dc", "#b49be0", "#76c4b0", "#d1ab78", "#e4977a", "#b3c066", "#93a5e6", "#da9184", "#7cc2dc"];
 
@@ -24,6 +25,8 @@ const state = {
   route: { nodes: new Set(), links: new Set() },
   region: null,              // region filter id
   maxImportance: 1,
+  capitals: new Map(),       // region id -> its capital's node id (fixed once chosen)
+  townCut: null,             // importance a place needs to be a town (fixed at first chart)
   theme: null,
   history: [],               // panel back-stack
 };
@@ -106,11 +109,10 @@ function palette() {
   return {
     paper: cssVar("--paper"), ink: cssVar("--ink"), inkSoft: cssVar("--ink-soft"), route: cssVar("--route"),
     select: cssVar("--select"), survey: cssVar("--survey"), halo: cssVar("--halo"),
-    tints: dark ? TINTS_DARK : TINTS_LIGHT, fills: dark ? NODE_DARK : NODE_LIGHT,
+    fills: dark ? NODE_DARK : NODE_LIGHT,
   };
 }
 let colors = palette();
-const regionTint = (c) => (c == null || c < 0 ? colors.route : colors.tints[c % colors.tints.length]);
 const regionFill = (c) => (c == null || c < 0 ? colors.route : colors.fills[c % colors.fills.length]);
 function regionName(c) {
   const r = state.communities.get(c);
@@ -127,7 +129,10 @@ const Graph = ForceGraph()(mapEl)
   .nodeLabel(() => "")
   .linkSource("source")
   .linkTarget("target")
-  .cooldownTicks(prefersReducedMotion ? 60 : 220)
+  // Settle the layout before painting it, then let it ease to rest. Places never fly
+  // across the map; they appear where they belong.
+  .warmupTicks(120)
+  .cooldownTicks(prefersReducedMotion ? 0 : 70)
   .d3VelocityDecay(0.32)
   .minZoom(0.2)
   .maxZoom(8)
@@ -136,15 +141,20 @@ const Graph = ForceGraph()(mapEl)
   .onBackgroundClick(() => clearSelection())
   .linkColor(linkColor)
   .linkWidth(linkWidth)
+  .linkCurvature((l) => (sameRegion(l) ? 0 : 0.2))
   .linkLineDash((l) => (state.route.links.has(linkKey(idOf(l.source), idOf(l.target))) ? [5, 3] : null))
   .nodeCanvasObjectMode(() => "replace")
   .nodeCanvasObject(drawNode)
   .nodePointerAreaPaint((n, color, ctx) => {
     ctx.fillStyle = color; ctx.beginPath(); ctx.arc(n.x, n.y, radius(n) + 3, 0, 2 * Math.PI); ctx.fill();
   })
-  .onRenderFramePre((ctx, scale) => { labelQueue = []; drawTerritories(ctx, scale); })
+  .onRenderFramePre(() => { labelQueue = []; })
   .onRenderFramePost(drawLabels)
-  .onEngineStop(() => { if (fitPending) { fitPending = false; Graph.zoomToFit(ANIM, 90); } });
+  .onEngineStop(() => {
+    // Once settled, nothing needs holding: the next change pins whatever is on the map then.
+    for (const n of state.nodes.values()) { delete n.fx; delete n.fy; }
+    if (fitPending) { fitPending = false; Graph.zoomToFit(ANIM, 90); }
+  });
 let fitPending = false;
 
 Graph.d3Force("charge").strength(-180).distanceMax(380);
@@ -208,28 +218,37 @@ Graph.d3Force("link")
 function resize() { Graph.width(mapEl.clientWidth).height(mapEl.clientHeight); }
 window.addEventListener("resize", resize);
 
-function radius(n) {
-  const imp = Math.max(0, n.importance || 0) / (state.maxImportance || 1);
-  return 3.2 + 10 * Math.sqrt(imp);
-}
+const TIER_RADIUS = { capital: 8, town: 5.2, hamlet: 3.2 };
+function radius(n) { return TIER_RADIUS[n.tier] || TIER_RADIUS.hamlet; }
 
 function visibleByRegion(n) { return state.region == null || n.community === state.region; }
 
 function drawNode(n, ctx, scale) {
-  const r = radius(n);
+  const g = grown(n);
+  if (g >= 1 && n.bornAt) delete n.bornAt;
+  const r = radius(n) * (0.35 + 0.65 * g);
   const isSel = n.id === state.selected;
   const inHood = state.neighbourhood.has(n.id) || n.id === state.hover;
   const onRoute = state.route.nodes.has(n.id);
   const dimmed = (state.selected && !inHood && !isSel && !onRoute) || !visibleByRegion(n);
-  ctx.globalAlpha = dimmed ? 0.28 : 1;
+  ctx.globalAlpha = (dimmed ? 0.28 : 1) * g;
 
   ctx.beginPath();
   ctx.arc(n.x, n.y, r, 0, 2 * Math.PI);
   ctx.fillStyle = regionFill(n.community);
   ctx.fill();
-  ctx.lineWidth = 1.2 / scale;
-  ctx.strokeStyle = colors.paper;
-  ctx.stroke();
+  if (n.tier === "capital") {
+    // the cartographic capital: a ringed dot
+    ctx.beginPath();
+    ctx.arc(n.x, n.y, r * 0.42, 0, 2 * Math.PI);
+    ctx.fillStyle = colors.paper;
+    ctx.fill();
+  }
+  if (n.tier !== "hamlet") {
+    ctx.lineWidth = 1.2 / scale;
+    ctx.strokeStyle = colors.paper;
+    ctx.stroke();
+  }
   if (isSel || onRoute) {
     ctx.beginPath();
     ctx.arc(n.x, n.y, r + 3.5 / scale + 1.5, 0, 2 * Math.PI);
@@ -240,8 +259,9 @@ function drawNode(n, ctx, scale) {
 
   // Lettering is queued and placed after all places are drawn (see drawLabels).
   const rel = (n.importance || 0) / (state.maxImportance || 1);
-  const priority = isSel ? 4 : onRoute ? 3 : inHood ? 2 : rel;
-  labelQueue.push({ n, r, priority, dimmed, strong: isSel || rel > 0.32 });
+  const rank = n.tier === "capital" ? 1.6 : n.tier === "town" ? 1 : 0;
+  const priority = isSel ? 4 : onRoute ? 3 : inHood ? 2 + rank / 10 : rank + Math.min(rel, 0.99) / 2;
+  labelQueue.push({ n, r, priority, dimmed, g, tier: isSel ? "selected" : n.tier || "hamlet" });
   ctx.globalAlpha = 1;
 }
 
@@ -251,24 +271,32 @@ let labelQueue = [];
 function drawLabels(ctx, scale) {
   const placed = [];
   labelQueue.sort((a, b) => b.priority - a.priority);
-  ctx.textAlign = "center";
-  ctx.textBaseline = "top";
+  // Names sit to the right of their symbol, as on a printed map.
+  const LETTER = {
+    selected: { px: 15,   weight: 700, tone: "ink" },
+    capital:  { px: 13.5, weight: 700, tone: "ink" },
+    town:     { px: 12,   weight: 600, tone: "ink" },
+    hamlet:   { px: 11,   weight: 500, tone: "inkSoft" },
+  };
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
   ctx.lineJoin = "round";
-  for (const { n, r, priority, dimmed, strong } of labelQueue) {
-    const size = (priority >= 4 ? 15 : strong ? 13.5 : 12) / scale;
-    ctx.font = `${strong ? 700 : 500} ${size}px "Barlow Semi Condensed", "Arial Narrow", sans-serif`;
+  for (const { n, r, priority, dimmed, tier, g } of labelQueue) {
+    const spec = LETTER[tier] || LETTER.hamlet;
+    const size = spec.px / scale;
+    ctx.font = `${spec.weight} ${size}px Overpass, "Arial Narrow", sans-serif`;
     const w = ctx.measureText(n.label).width;
-    const y = n.y + r + 2.5 / scale;
-    const box = [n.x - w / 2 - 2 / scale, y - 1 / scale, n.x + w / 2 + 2 / scale, y + size + 1 / scale];
+    const x = n.x + r + 4 / scale;
+    const box = [x - 1 / scale, n.y - size / 2 - 1 / scale, x + w + 2 / scale, n.y + size / 2 + 1 / scale];
     const collides = placed.some((b) => box[0] < b[2] && box[2] > b[0] && box[1] < b[3] && box[3] > b[1]);
     if (collides && priority < 3) continue;
     placed.push(box);
-    ctx.globalAlpha = dimmed ? 0.35 : 1;
-    ctx.lineWidth = 3.4 / scale;
+    ctx.globalAlpha = (dimmed ? 0.35 : 1) * (g ?? 1);
+    ctx.lineWidth = 3 / scale;
     ctx.strokeStyle = colors.halo;
-    ctx.strokeText(n.label, n.x, y);
-    ctx.fillStyle = colors.ink;
-    ctx.fillText(n.label, n.x, y);
+    ctx.strokeText(n.label, x, n.y);
+    ctx.fillStyle = colors[spec.tone];
+    ctx.fillText(n.label, x, n.y);
   }
   ctx.globalAlpha = 1;
   labelQueue = [];
@@ -280,90 +308,22 @@ function linkColor(l) {
   const s = idOf(l.source), t = idOf(l.target);
   const focus = state.selected || state.hover;
   if (focus && (s === focus || t === focus)) return colors.ink;
-  return hexAlpha(colors.route, state.selected ? 0.18 : sameRegion(l) ? 0.6 : 0.22);
+  if (sameRegion(l)) return hexAlpha(colors.route, state.selected ? 0.12 : 0.32);
+  // Between regions: present, but not the subject of the map.
+  return hexAlpha(colors.route, state.selected ? 0.11 : 0.2);
 }
 function linkWidth(l) {
   const key = linkKey(idOf(l.source), idOf(l.target));
-  if (state.route.links.has(key)) return 2.6;
+  if (state.route.links.has(key)) return 1.8;
   const focus = state.selected || state.hover;
-  const base = 0.5 + Math.min(2.2, (l.strength || 0) * 0.7);
-  return focus && (idOf(l.source) === focus || idOf(l.target) === focus) ? base + 0.6 : base;
+  const base = sameRegion(l) ? 0.35 + Math.min(0.4, (l.strength || 0) * 0.12) : 0.3;
+  return focus && (idOf(l.source) === focus || idOf(l.target) === focus) ? base + 0.5 : base;
 }
 function hexAlpha(hex, a) {
   const h = hex.replace("#", "");
   if (h.length !== 6) return hex;
   const [r, g, b] = [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16));
   return `rgba(${r},${g},${b},${a})`;
-}
-
-// Territories: a soft blob around each region's visible places + italic region lettering.
-function drawTerritories(ctx, scale) {
-  const groups = new Map();
-  for (const n of state.nodes.values()) {
-    if (n.x == null || n.community == null || n.community < 0) continue;
-    if (!groups.has(n.community)) groups.set(n.community, []);
-    groups.get(n.community).push(n);
-  }
-  for (const [c, members] of groups) {
-    if (members.length < 3) continue;
-    const pad = 22;
-    const pts = [];
-    for (const m of members) {
-      const r = radius(m) + pad;
-      for (let k = 0; k < 8; k++) {
-        const a = (k / 8) * 2 * Math.PI;
-        pts.push([m.x + r * Math.cos(a), m.y + r * Math.sin(a)]);
-      }
-    }
-    const hull = convexHull(pts);
-    if (hull.length < 3) continue;
-    const dim = state.region != null && state.region !== c;
-    ctx.globalAlpha = dim ? 0.18 : 0.55;
-    ctx.fillStyle = regionTint(c);
-    ctx.beginPath();
-    smoothPath(ctx, hull);
-    ctx.fill();
-    ctx.globalAlpha = dim ? 0.15 : 0.5;
-    ctx.lineWidth = 1 / scale;
-    ctx.strokeStyle = regionFill(c);
-    ctx.setLineDash([3 / scale, 3 / scale]);
-    ctx.stroke();
-    ctx.setLineDash([]);
-
-    // Region name above the territory, in atlas italics, constant on-screen size.
-    const top = hull.reduce((a, p) => (p[1] < a[1] ? p : a), hull[0]);
-    const cx = members.reduce((s, m) => s + m.x, 0) / members.length;
-    const size = 16 / scale;
-    ctx.globalAlpha = dim ? 0.25 : 0.9;
-    ctx.font = `italic 500 ${size}px Spectral, Georgia, serif`;
-    ctx.textAlign = "center";
-    ctx.textBaseline = "bottom";
-    ctx.fillStyle = colors.inkSoft;
-    ctx.fillText(regionName(c), cx, top[1] - 4 / scale);
-    ctx.globalAlpha = 1;
-  }
-}
-
-function convexHull(points) {
-  const p = points.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1]);
-  const cross = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
-  const lower = [];
-  for (const pt of p) { while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], pt) <= 0) lower.pop(); lower.push(pt); }
-  const upper = [];
-  for (let i = p.length - 1; i >= 0; i--) { const pt = p[i]; while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], pt) <= 0) upper.pop(); upper.push(pt); }
-  upper.pop(); lower.pop();
-  return lower.concat(upper);
-}
-function smoothPath(ctx, pts) {
-  const mid = (a, b) => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
-  const start = mid(pts[pts.length - 1], pts[0]);
-  ctx.moveTo(start[0], start[1]);
-  for (let i = 0; i < pts.length; i++) {
-    const next = pts[(i + 1) % pts.length];
-    const m = mid(pts[i], next);
-    ctx.quadraticCurveTo(pts[i][0], pts[i][1], m[0], m[1]);
-  }
-  ctx.closePath();
 }
 
 // ------------------------------------------------------------------ data merge
@@ -373,13 +333,16 @@ function addNode(n, near) {
   const node = { ...n };
   const anchor = anchors.get(n.community);
   if (near && near.x != null) {
-    const a = Math.random() * 2 * Math.PI;
-    node.x = near.x + 30 * Math.cos(a);
-    node.y = near.y + 30 * Math.sin(a);
+    // Even spacing around the place they came from (golden angle), not a random scatter.
+    near._spawned = (near._spawned || 0) + 1;
+    const a = near._spawned * 2.39996;
+    node.x = near.x + 46 * Math.cos(a);
+    node.y = near.y + 46 * Math.sin(a);
   } else if (anchor) {
     node.x = anchor[0] + (Math.random() - 0.5) * 80;
     node.y = anchor[1] + (Math.random() - 0.5) * 80;
   }
+  if (!prefersReducedMotion && state.nodes.size) node.bornAt = performance.now();
   state.nodes.set(n.id, node);
   state.maxImportance = Math.max(state.maxImportance, n.importance || 0);
   return node;
@@ -390,13 +353,37 @@ function addLink(e) {
   if (!state.links.has(key)) state.links.set(key, { source: e.source, target: e.target, strength: e.strength });
 }
 function commit() {
+  computeTiers();
+  // The map never rearranges under you: everything already placed is held where it is,
+  // and only newcomers find their spot.
+  for (const n of state.nodes.values()) if (n.x != null && !n.bornAt) { n.fx = n.x; n.fy = n.y; }
   Graph.graphData({ nodes: [...state.nodes.values()], links: [...state.links.values()] });
+}
+
+// Settlement hierarchy, as on a printed map. Raw importance is nearly flat across the
+// overview (every place came out the same size), so rank is used instead: each region's
+// most important place is its capital, the upper third are towns, the rest are hamlets.
+// A place's tier is decided once, so nothing on the map changes size when neighbours arrive.
+function computeTiers() {
+  const fresh = [...state.nodes.values()].filter((n) => !n.tier)
+    .sort((a, b) => (b.importance || 0) - (a.importance || 0));
+  if (!fresh.length) return;
+  if (state.townCut == null) {
+    const k = Math.max(0, Math.round(fresh.length * 0.35) - 1);
+    state.townCut = fresh[k] ? fresh[k].importance || 0 : 0;
+  }
+  for (const n of fresh) {
+    const c = n.community;
+    if (c != null && c >= 0 && !state.capitals.has(c)) { state.capitals.set(c, n.id); n.tier = "capital"; }
+    else n.tier = (n.importance || 0) >= state.townCut ? "town" : "hamlet";
+  }
 }
 
 async function loadOverview() {
   setStatus("Charting your most important concepts…");
   const data = await api("/api/graph/overview?limit=55");
   state.nodes.clear(); state.links.clear(); state.communities.clear();
+  state.capitals.clear(); state.townCut = null;
   state.maxImportance = Math.max(...data.nodes.map((n) => n.importance || 0), 0.0001);
   data.communities.forEach((c) => state.communities.set(c.id, c));
   layoutAnchors(data.nodes);
@@ -405,8 +392,7 @@ async function loadOverview() {
   commit();
   renderRegions(data);
   setStatus(`${data.nodes.length} of ${data.total_nodes.toLocaleString()} concepts shown. Open one to see what it connects to.`);
-  fitPending = true;  // fit once the layout has settled
-  setTimeout(() => Graph.zoomToFit(ANIM, 90), prefersReducedMotion ? 50 : 700);
+  setTimeout(() => Graph.zoomToFit(ANIM, 90), 60);  // layout is pre-settled: one establishing move
   return data;
 }
 
@@ -423,14 +409,14 @@ function renderRegions(data) {
   const shown = new Set(data.nodes.map((n) => n.community));
   const list = $("#region-list");
   list.innerHTML = "";
-  [...state.communities.values()]
-    .filter((c) => shown.has(c.id))
-    .slice(0, 14)
-    .forEach((c) => {
+  const visible = [...state.communities.values()].filter((c) => shown.has(c.id)).slice(0, 14);
+  const largest = Math.max(...visible.map((c) => c.size), 1);
+  visible.forEach((c) => {
       const li = document.createElement("li");
-      li.innerHTML = `<button type="button" aria-pressed="false" data-region="${c.id}">
-        <span class="swatch" style="background:${regionTint(c.id)}"></span><span>${esc(c.label)}</span>
-        <span class="count">${c.size}</span></button>`;
+      // The bar carries relative size, which a bare number makes you compute.
+      li.innerHTML = `<button type="button" aria-pressed="false" data-region="${c.id}" style="--fill:${(c.size / largest).toFixed(3)};--tone:${regionFill(c.id)}">
+        <span class="swatch" style="background:${regionFill(c.id)}"></span><span class="region-name">${esc(c.label)}</span>
+        <span class="count">${c.size.toLocaleString()}</span></button>`;
       list.appendChild(li);
     });
 }
@@ -481,6 +467,8 @@ async function openConcept(id, { pushHistory = true } = {}) {
     return;
   }
   const centre = addNode(detail.node);
+  delete centre.bornAt;                       // the place you opened is the fixed point
+  if (centre.x != null) { centre.fx = centre.x; centre.fy = centre.y; }
   detail.neighbors.slice(0, NEIGHBOURS_ON_MAP).forEach((nb) => addNode(nb, centre));
   detail.edges.forEach(addLink);
   commit();
@@ -489,9 +477,8 @@ async function openConcept(id, { pushHistory = true } = {}) {
   state.route = { nodes: new Set(), links: new Set() };
   if (pushHistory) state.history.push({ type: "concept", id });
   renderConcept(detail);
-  setTimeout(() => {
-    if (centre.x != null) { Graph.centerAt(centre.x, centre.y, ANIM); if (Graph.zoom() < 1.4) Graph.zoom(1.6, ANIM); }
-  }, prefersReducedMotion ? 0 : 350);
+  // One glide that frames the place and its neighbourhood together.
+  setTimeout(() => fitTo((m) => m.id === centre.id || state.neighbourhood.has(m.id), 110, 2.2), 40);
   setStatus(`${detail.node.label}: ${detail.neighbors.length} connected concepts.`);
 }
 
@@ -543,25 +530,45 @@ function fillMonths(timeline) {
   return out;
 }
 
+// A chart needs something to compare. One month, or a flat run of identical
+// months, is a sentence — drawing it as a bar renders a grey slab that reads
+// as a broken image.
 function timelineHtml(timeline) {
   timeline = fillMonths(timeline);
-  if (!timeline.length) return "";
+  const active = timeline.filter((t) => t.conversations > 0);
+  if (active.length < 2 || timeline.length < 3) return "";
+
   const max = Math.max(...timeline.map((t) => t.conversations));
-  const bars = timeline.map((t) => `<span title="${esc(fmtMonth(t.month))}: ${t.conversations} conversation${t.conversations > 1 ? "s" : ""}" style="height:${t.conversations ? Math.max(10, (t.conversations / max) * 100) : 2}%"></span>`).join("");
-  return `<h2>Over time</h2><div class="timeline" role="img" aria-label="Conversations per month">${bars}</div>
-    <div class="timeline-axis"><span>${esc(fmtMonth(timeline[0].month))}</span><span>${esc(fmtMonth(timeline[timeline.length - 1].month))}</span></div>`;
+  const total = timeline.reduce((a, t) => a + t.conversations, 0);
+  const peak = timeline.find((t) => t.conversations === max);
+  const bars = timeline.map((t) => {
+    const label = `${esc(fmtMonth(t.month))}: ${t.conversations || "no"} conversation${t.conversations === 1 ? "" : "s"}`;
+    return `<span class="${t.conversations === max ? "peak" : ""}" title="${label}" style="height:${t.conversations ? Math.max(8, (t.conversations / max) * 100) : 0}%"></span>`;
+  }).join("");
+  const mid = timeline[Math.floor(timeline.length / 2)];
+  return `<h2>Over time <span class="count">${total}</span></h2>
+    <p class="explain">Busiest in ${esc(fmtMonth(peak.month))}, with ${peak.conversations}.</p>
+    <div class="timeline" role="img" aria-label="Conversations per month, ${timeline.length} months">${bars}</div>
+    <div class="timeline-axis"><span>${esc(fmtMonth(timeline[0].month))}</span><span>${esc(fmtMonth(mid.month))}</span><span>${esc(fmtMonth(timeline[timeline.length - 1].month))}</span></div>`;
 }
 
 function renderConcept(d) {
   const n = d.node;
   const span = n.first_seen ? (n.first_seen === n.last_seen ? ` on ${fmtDate(n.first_seen)}` : ` between ${fmtDate(n.first_seen)} and ${fmtDate(n.last_seen)}`) : "";
   const kind = (n.type && n.type !== "topic" ? n.type : n.kind === "topic" ? "Topic" : "Entity");
-  const maxS = Math.max(...d.neighbors.map((x) => x.edge.strength), 0.0001);
+  // Only draw a comparison when there is something to compare. Equal strengths
+  // render as a row of identical full-width bars, which encode nothing; equal
+  // conversation counts repeat one sentence down the whole list.
+  const strengths = d.neighbors.map((x) => x.edge.strength || 0);
+  const maxS = Math.max(...strengths, 0.0001);
+  const varies = strengths.length > 2 && Math.max(...strengths) - Math.min(...strengths) > 1e-9;
+  const convs = d.neighbors.map((nb) => nb.edge.conversations || 0);
+  const sharedCount = convs.length > 1 && new Set(convs).size === 1 ? convs[0] : null;
   const neighbours = d.neighbors.map((nb) => `<li><button type="button" class="row-btn" data-concept="${esc(nb.id)}">
-      <span class="row-title"><span class="swatch" style="background:${regionTint(nb.community)}"></span>${esc(nb.label)}
+      <span class="row-title"><span class="swatch" style="background:${regionFill(nb.community)}"></span><span class="row-name">${esc(nb.label)}</span>
         ${nb.relations.length ? `<span class="tag">${esc(nb.relations.map(relWord).join(", "))}</span>` : ""}
-        <span class="strength" title="connection strength"><i style="width:${(nb.edge.strength / maxS) * 100}%"></i></span></span>
-      <span class="row-meta">${nb.edge.conversations || 0} shared conversation${nb.edge.conversations === 1 ? "" : "s"}</span>
+        ${varies ? `<span class="strength" title="${nb.edge.conversations || 0} shared conversation${nb.edge.conversations === 1 ? "" : "s"}"><i style="width:${(nb.edge.strength / maxS) * 100}%"></i></span>` : ""}</span>
+      ${sharedCount === null ? `<span class="row-meta">${nb.edge.conversations || 0} shared conversation${nb.edge.conversations === 1 ? "" : "s"}</span>` : ""}
     </button></li>`).join("");
   const relations = d.relations.slice(0, 12).map((r) => `<div class="relation">
       <button type="button" class="wikilink" data-concept="${esc(r.source)}">${esc(r.source_label)}</button>
@@ -574,18 +581,18 @@ function renderConcept(d) {
       <span class="row-meta">${esc(platformName(m.platform))}, ${esc(fmtDate(m.date))}${m.count > 1 ? `, ${m.count} passages` : ""}</span>
       <p class="row-snippet">${esc(m.snippet)}</p></button></li>`).join("");
   const worth = (d.worth_connecting || []).map((w) => `<li><button type="button" class="row-btn" data-route="${esc(n.id)}|${esc(w.id)}">
-      <span class="row-title"><span class="swatch" style="background:${regionTint(w.community)}"></span>${esc(w.label)}</span>
+      <span class="row-title"><span class="swatch" style="background:${regionFill(w.community)}"></span>${esc(w.label)}</span>
       <span class="row-meta">both linked to ${esc(w.via.map((v) => v.label).join(", "))}</span></button></li>`).join("");
   showPanel(`${backButton()}
     <h1>${esc(n.label)}</h1>
     <p class="lede">${esc(cap(kind))}, discussed in ${n.conversation_count} conversation${n.conversation_count === 1 ? "" : "s"}${esc(span)}.</p>
-    ${d.community ? `<button type="button" class="region-chip" data-region-chip="${d.community.id}"><span class="swatch" style="background:${regionTint(d.community.id)}"></span>${esc(d.community.label)}</button>` : ""}
+    ${d.community ? `<button type="button" class="region-chip" data-region-chip="${d.community.id}"><span class="swatch" style="background:${regionFill(d.community.id)}"></span>${esc(d.community.label)}</button>` : ""}
     ${d.summary ? `<h2>In short</h2><div class="summary">${renderText(d.summary.summary)}</div><p class="row-meta">Written by ${esc(d.summary.model)} from ${d.summary.sources.length} of your conversations.</p>` : ""}
     ${timelineHtml(d.timeline)}
-    ${neighbours ? `<h2>Connected to</h2><ul class="rows">${neighbours}</ul>` : `<p class="muted">No connections yet.</p>`}
-    ${relations ? `<h2>How they relate</h2>${relations}` : ""}
-    ${worth && !STATIC ? `<h2>Worth connecting</h2><p class="explain muted">Never discussed together with ${esc(n.label)}, but they share several neighbours.</p><ul class="rows">${worth}</ul>` : ""}
-    ${mentions ? `<h2>Where you discussed it</h2><ul class="rows">${mentions}</ul>` : ""}`);
+    ${neighbours ? `<h2>Connected to <span class="count">${d.neighbors.length}</span></h2>${sharedCount !== null ? `<p class="explain">Each shares ${sharedCount} conversation${sharedCount === 1 ? "" : "s"} with ${esc(n.label)}.</p>` : ""}<ul class="rows ${sharedCount === null ? "" : "compact"}">${neighbours}</ul>` : `<p class="muted">Nothing connects to ${esc(n.label)} yet. It will link up as you discuss it alongside other ideas.</p>`}
+    ${relations ? `<h2>How they relate <span class="count">${Math.min(d.relations.length, 12)}</span></h2>${relations}` : ""}
+    ${worth && !STATIC ? `<h2>Worth connecting <span class="count">${(d.worth_connecting || []).length}</span></h2><p class="explain muted">Never discussed together with ${esc(n.label)}, but they share several neighbours.</p><ul class="rows">${worth}</ul>` : ""}
+    ${mentions ? `<h2>Where you discussed it <span class="count">${d.mentions.length}</span></h2><ul class="rows">${mentions}</ul>` : ""}`);
 }
 
 const cap = (s) => (s ? s[0].toUpperCase() + s.slice(1) : s);
@@ -786,7 +793,8 @@ $("#theme-toggle").addEventListener("click", () => {
   colors = palette();
   document.querySelectorAll("#region-list .swatch").forEach((s) => {
     const id = Number(s.closest("button").dataset.region);
-    s.style.background = regionTint(id);
+    s.style.background = regionFill(id);
+    s.closest("button").style.setProperty("--tone", regionFill(id));
   });
 });
 window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { colors = palette(); });
@@ -800,6 +808,10 @@ document.addEventListener("keydown", (e) => {
   try { const saved = localStorage.getItem("kb-theme"); if (saved) document.documentElement.dataset.theme = saved; } catch { /* ignore */ }
   colors = palette();
   resize();
+  if (document.fonts) {
+    Promise.all(['600 12px Overpass', 'italic 600 15px "Libre Bodoni"'].map((f) => document.fonts.load(f)))
+      .then(() => Graph.nodeColor(Graph.nodeColor())).catch(() => {});
+  }
   if (STATIC) $("#search-input").placeholder = "Find a concept";
   try {
     const stats = await api("/api/stats");
