@@ -5,32 +5,72 @@
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 from importlib import resources
 from pathlib import Path
 from urllib.parse import urlparse
 
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import Body, FastAPI, HTTPException, Query, Request
+from fastapi.concurrency import run_in_threadpool
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from knowledgebase import __version__
+from knowledgebase.config import Settings
+from knowledgebase.parsers.platform import Platform
+from knowledgebase.server.jobs import BuildBusy, BuildManager
 from knowledgebase.server.mcp import MCPHandler
 from knowledgebase.server.service import KnowledgeService, NotFound
+from knowledgebase.workspace import ImportRejected, Workspace, platforms_catalog
 
-LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1", "[::1]"}
+# "tauri.localhost" is the origin of the desktop app's pages on Windows (tauri://localhost elsewhere).
+LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1", "[::1]", "tauri.localhost"}
+LOCAL_ORIGIN_RE = r"^(https?|tauri)://(localhost|127\.0\.0\.1|\[::1\]|tauri\.localhost)(:\d+)?$"
+MAX_UPLOAD_BYTES = int(os.environ.get("KB_MAX_UPLOAD_BYTES", 20 * 1024 ** 3))
 
 
 def _static_dir() -> Path:
     return Path(str(resources.files("knowledgebase.server").joinpath("static")))
 
 
-def create_app(index_dir: Path, embedder: str = "auto", embed_model: str | None = None,
-               allowed_origins: list[str] | None = None) -> FastAPI:
-    service = KnowledgeService(index_dir, embedder=embedder, embed_model=embed_model)
+def create_app(index_dir: Path | None = None, embedder: str = "auto", embed_model: str | None = None,
+               allowed_origins: list[str] | None = None, settings: Settings | None = None) -> FastAPI:
+    if settings is None:
+        settings = Settings(vault_dir=Path(index_dir).parent if index_dir else Path("vault"), embedder=embedder)
+        if embed_model:
+            settings.embed_model = embed_model
+    service = KnowledgeService(Path(index_dir) if index_dir else settings.index_dir, embedder=embedder,
+                               embed_model=embed_model)
     mcp = MCPHandler(service)
+    workspace = Workspace(settings)
+    builds = BuildManager(on_done=service.reload)
     extra_origins = set(allowed_origins or [])
     app = FastAPI(title="knowledgeBase", version=__version__, docs_url="/api/docs", openapi_url="/api/openapi.json")
     app.state.service = service
+    app.state.workspace = workspace
+    app.state.builds = builds
+
+    def origin_allowed(request: Request) -> bool:
+        origin = request.headers.get("origin")
+        if not origin:
+            return True  # non-browser clients
+        host = urlparse(origin).hostname or ""
+        return host in LOCAL_HOSTS or origin in extra_origins
+
+    @app.middleware("http")
+    async def refuse_foreign_writes(request: Request, call_next):
+        # Anything that changes state (MCP calls, uploads, settings, builds) only from local pages:
+        # stops a random website from driving the server through your browser (DNS rebinding / CSRF).
+        if request.method not in ("GET", "HEAD", "OPTIONS") and request.url.path.startswith("/api") \
+                and not origin_allowed(request):
+            return JSONResponse({"error": "origin not allowed"}, status_code=403)
+        return await call_next(request)
+
+    # The desktop app (and a dev UI on another port) loads its pages from a different origin.
+    app.add_middleware(CORSMiddleware, allow_origin_regex=LOCAL_ORIGIN_RE, allow_origins=sorted(extra_origins),
+                       allow_methods=["*"], allow_headers=["*"])
 
     def guard():
         if not service.ready:
@@ -109,19 +149,85 @@ def create_app(index_dir: Path, embedder: str = "auto", embed_model: str | None 
         except NotFound as exc:
             not_found(exc)
 
-    # ------------------------------------------------------------------ MCP (Streamable HTTP)
-    def origin_allowed(request: Request) -> bool:
-        origin = request.headers.get("origin")
-        if not origin:
-            return True  # non-browser clients
-        host = urlparse(origin).hostname or ""
-        return host in LOCAL_HOSTS or origin in extra_origins
+    # ------------------------------------------------------------------ workspace: imports, output folder, builds
+    @app.get("/api/platforms")
+    def platforms():
+        return platforms_catalog()
 
+    @app.get("/api/workspace")
+    def workspace_state():
+        from knowledgebase.pipeline import configured_sources
+
+        return {
+            "output": workspace.output_info(),
+            "imports": [r.to_dict() for r in workspace.imports()],
+            "configured_sources": [{"platform": p, "label": Platform.parse(p).label, "path": str(path)}
+                                   for p, path in configured_sources(settings)],
+            "build": builds.status(),
+        }
+
+    @app.post("/api/imports", status_code=201)
+    async def upload_export(request: Request, platform: Platform, filename: str = "", replace: bool = False):
+        """Body: the raw export file (zip, or a bare .json). Validated with the chosen platform's parser."""
+        if builds.running:
+            raise HTTPException(409, "A build is running; import again when it has finished.")
+        workspace.app_dir.mkdir(parents=True, exist_ok=True)
+        fd, tmp_name = tempfile.mkstemp(prefix=".upload-", dir=workspace.app_dir)
+        tmp = Path(tmp_name)
+        try:
+            size = 0
+            with os.fdopen(fd, "wb") as out:
+                async for chunk in request.stream():
+                    size += len(chunk)
+                    if size > MAX_UPLOAD_BYTES:
+                        raise HTTPException(413, f"Uploads are limited to {MAX_UPLOAD_BYTES // 1024 ** 3} GB.")
+                    out.write(chunk)
+            if size == 0:
+                raise HTTPException(400, "The upload was empty.")
+            try:
+                record = await run_in_threadpool(workspace.import_file, tmp, platform, filename, replace)
+            except ImportRejected as exc:
+                return JSONResponse({"detail": str(exc), "detected": exc.detected.value if exc.detected else None},
+                                    status_code=422)
+        finally:
+            tmp.unlink(missing_ok=True)
+        return record.to_dict()
+
+    @app.delete("/api/imports/{import_id}")
+    def delete_import(import_id: str):
+        if builds.running:
+            raise HTTPException(409, "A build is running; remove the import when it has finished.")
+        if not workspace.remove(import_id):
+            raise HTTPException(404, "No such import.")
+        return {"removed": import_id}
+
+    @app.put("/api/settings/output")
+    def set_output(path: str = Body(..., embed=True)):
+        """Where the markdown notes (conversations/, concepts/) and graph/index files are written."""
+        if builds.running:
+            raise HTTPException(409, "A build is running; change the folder when it has finished.")
+        try:
+            info = workspace.set_output_dir(path)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        service.use_index_dir(settings.index_dir)
+        return info
+
+    @app.post("/api/build", status_code=202)
+    def start_build():
+        try:
+            return builds.start(settings)
+        except BuildBusy as exc:
+            raise HTTPException(409, str(exc)) from exc
+
+    @app.get("/api/build")
+    def build_status():
+        return builds.status()
+
+    # ------------------------------------------------------------------ MCP (Streamable HTTP)
     @app.post("/api/mcp")
     async def mcp_post(request: Request):
-        # DNS-rebinding protection required by the MCP spec for local servers.
-        if not origin_allowed(request):
-            return JSONResponse({"error": "origin not allowed"}, status_code=403)
+        # (Origin is checked by refuse_foreign_writes: DNS-rebinding protection the MCP spec requires.)
         try:
             payload = json.loads(await request.body() or b"null")
         except json.JSONDecodeError:

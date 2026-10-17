@@ -27,6 +27,7 @@ def _settings(args):
         entity_extractor=getattr(args, "entities", None),
         port=getattr(args, "port", None),
         host=getattr(args, "host", None),
+        app_dir=getattr(args, "app_dir", None),
     )
 
 
@@ -104,7 +105,7 @@ def cmd_serve(args) -> int:
 
     settings = _settings(args)
     app = create_app(settings.index_dir, embedder=settings.embedder, embed_model=settings.embed_model,
-                     allowed_origins=args.allow_origin)
+                     allowed_origins=args.allow_origin, settings=settings)
     print(f"knowledgeBase on http://{settings.host}:{settings.port}  ·  MCP: http://{settings.host}:{settings.port}/api/mcp")
     uvicorn.run(app, host=settings.host, port=settings.port, log_level="warning")
     return 0
@@ -158,7 +159,9 @@ def cmd_demo(args) -> int:
     if not root.exists():
         print("Sample exports not found (they ship with the git repository, not the wheel).", file=sys.stderr)
         return 1
-    settings = load_settings(None, vault_dir=args.vault or "demo_vault", embedder=args.embedder,
+    vault = Path(args.vault or "demo_vault")
+    # The demo keeps its own app state, so your real uploads never mix into the sample atlas.
+    settings = load_settings(None, vault_dir=vault, embedder=args.embedder, app_dir=vault / ".app",
                              entity_extractor=args.entities, port=args.port)
     settings.exports = {
         "chatgpt": str(root / "chatgpt" / "conversations.json"),
@@ -170,7 +173,7 @@ def cmd_demo(args) -> int:
     print_highlights(settings.index_dir)
     if args.no_serve:
         return 0
-    args.config, args.vault, args.allow_origin = None, str(settings.vault_dir), []
+    args.config, args.vault, args.allow_origin, args.app_dir = None, str(settings.vault_dir), [], str(settings.app_dir)
     return cmd_serve(args)
 
 

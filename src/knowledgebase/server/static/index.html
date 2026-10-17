@@ -24,6 +24,7 @@
     </form>
     <nav class="modes" aria-label="Views">
       <button type="button" class="mode" id="mode-discover" aria-pressed="false">Discover</button>
+      <button type="button" class="mode" id="open-data" aria-haspopup="dialog">Your data</button>
       <button type="button" class="icon-btn" id="theme-toggle" aria-label="Switch between light and dark map">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9 7 7 0 0 1-9-9z"/></svg>
       </button>
@@ -52,8 +53,56 @@
 
   <div class="empty-state" id="empty-state" hidden>
     <h1>No knowledge base yet</h1>
-    <p>Put your chat exports in <code>data/</code> and run <code>kb build</code>, or try the sample data with <code>kb demo</code>. Then reload this page.</p>
+    <p>Add a chat export from ChatGPT, Claude, Claude Code or Gemini and build your atlas here. You can also put exports in <code>data/</code> and run <code>kb build</code>, or try the sample data with <code>kb demo</code>.</p>
+    <p><button type="button" class="primary" id="empty-add">Add your chats</button></p>
   </div>
+
+  <dialog class="data-dialog" id="data-dialog" aria-labelledby="data-title">
+    <form method="dialog" class="dialog-head">
+      <h1 id="data-title">Your data</h1>
+      <button class="icon-btn" value="close" aria-label="Close">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+      </button>
+    </form>
+
+    <section aria-labelledby="add-title">
+      <h2 id="add-title">Add chats</h2>
+      <form id="import-form" class="import-form">
+        <label for="import-platform">Exported from</label>
+        <select id="import-platform" required></select>
+        <p class="hint" id="import-hint"></p>
+        <label for="import-file">Export file</label>
+        <input id="import-file" type="file" accept=".zip,.json,.jsonl,application/zip,application/json" required>
+        <label class="check"><input type="checkbox" id="import-replace" checked> <span id="import-replace-label">Replace earlier imports from this app</span></label>
+        <div class="row">
+          <button type="submit" class="primary" id="import-submit">Check and add</button>
+          <progress id="import-progress" max="1" value="0" hidden></progress>
+        </div>
+        <p class="result" id="import-result" role="status" aria-live="polite"></p>
+      </form>
+      <ul class="sources" id="import-list"></ul>
+    </section>
+
+    <section aria-labelledby="out-title">
+      <h2 id="out-title">Output folder</h2>
+      <p class="hint">Markdown notes (<code>conversations/</code>, <code>entities/</code>, <code>topics/</code>) and the graph files are written here. Open it in Obsidian as a vault.</p>
+      <form id="output-form" class="row">
+        <label class="visually-hidden" for="output-path">Output folder</label>
+        <input id="output-path" type="text" spellcheck="false" autocomplete="off" required>
+        <button type="submit" class="tool">Use folder</button>
+      </form>
+      <p class="result" id="output-result" role="status" aria-live="polite"></p>
+    </section>
+
+    <section aria-labelledby="build-title">
+      <h2 id="build-title">Build</h2>
+      <div class="row">
+        <button type="button" class="primary" id="build-start">Build knowledge base</button>
+        <progress id="build-progress" max="1" value="0" hidden></progress>
+      </div>
+      <p class="result" id="build-result" role="status" aria-live="polite"></p>
+    </section>
+  </dialog>
 
   <script src="/assets/vendor/force-graph.min.js"></script>
   <script type="module" src="/assets/app.js"></script>

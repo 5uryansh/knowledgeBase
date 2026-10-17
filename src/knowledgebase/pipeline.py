@@ -7,7 +7,7 @@ import time
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
+from typing import Callable, Iterable
 
 import numpy as np
 from tqdm import tqdm
@@ -54,20 +54,39 @@ class BuildReport:
                 f"[{self.entity_extractor}, {self.embedder or 'no dense'}] in {self.seconds:.1f}s")
 
 
-def parse_exports(settings: Settings) -> list[Conversation]:
-    conversations: dict[str, Conversation] = {}
+def configured_sources(settings: Settings, log_missing: bool = False) -> list[tuple[str, Path]]:
+    """(platform, path) for the `exports:` in kb.yaml that exist on this machine."""
+    found = []
     for platform, rel in settings.exports.items():
-        parser_cls = PARSERS.get(platform)
         path = Path(rel).expanduser()
         if platform == "claude-code" and not path.exists() and rel == DEFAULT_EXPORTS["claude-code"]:
             # No copied export: read Claude Code's own session store directly.
             path = Path("~/.claude/projects").expanduser()
-        if parser_cls is None or not path.exists():
-            log.info("Skipping %s: %s not found", platform, path)
+        if PARSERS.get(platform) is None or not path.exists():
+            if log_missing:
+                log.info("Skipping %s: %s not found", platform, path)
             continue
+        found.append((platform, path))
+    return found
+
+
+def parse_exports(settings: Settings) -> list[Conversation]:
+    conversations: dict[str, Conversation] = {}
+    for platform, path in configured_sources(settings, log_missing=True):
+        parser_cls = PARSERS[platform]
         log.info("Parsing %s export: %s", platform, path)
         for conv in parser_cls(path).parse():
             conversations[conv.uid] = conv  # re-imports overwrite instead of duplicating
+    # Exports uploaded through the app (oldest first, so a newer export of the same chats wins).
+    from knowledgebase.workspace import Workspace
+
+    for platform, path in Workspace(settings).import_paths():
+        if not path.exists():
+            log.info("Skipping imported %s export: %s is gone", platform.value, path)
+            continue
+        log.info("Parsing imported %s export: %s", platform.value, path)
+        for conv in platform.parser(path).parse():
+            conversations[conv.uid] = conv
     return sorted(conversations.values(), key=lambda c: (c.created_at is None, c.created_at or 0, c.uid))
 
 
@@ -188,6 +207,15 @@ def build_graph(
     return compute_analytics(graph)
 
 
+# progress(stage, done, total): lets the app show a progress bar for a build.
+Progress = Callable[[str, int, int], None]
+BUILD_STAGES = ("parse", "concepts", "link", "graph", "embed", "save", "vault")
+
+
+def _no_progress(stage: str, done: int, total: int) -> None:
+    pass
+
+
 def build(
     settings: Settings,
     conversations: Iterable[Conversation] | None = None,
@@ -195,17 +223,22 @@ def build(
     embedder: Embedder | None | str = "auto",
     extractor: ConceptExtractor | None = None,
     show_progress: bool = True,
+    progress: Progress | None = None,
 ) -> BuildReport:
     t0 = time.time()
+    report_progress = progress or _no_progress
     vault = Path(settings.vault_dir)
     index_dir = settings.index_dir
     index_dir.mkdir(parents=True, exist_ok=True)
 
+    report_progress("parse", 0, 1)
     convs = list(conversations) if conversations is not None else parse_exports(settings)
+    report_progress("parse", 1, 1)
     if not convs:
         raise SystemExit("No conversations found. Put your exports under data/ (see README) or set `exports:` in kb.yaml.")
     check_memory_or_exit(context="after parsing")
 
+    report_progress("concepts", 0, len(convs))
     extractor = extractor or ConceptExtractor(settings)
     cache = ConceptCache(index_dir / "cache" / "concepts.jsonl", extractor.signature)
     chunker = Chunker(max_chars=settings.max_chunk_chars)
@@ -220,6 +253,7 @@ def build(
             if n % 50 == 0:
                 cache.save()  # so a memory-guard stop doesn't lose finished work
         concepts_by_conv[conv.uid] = concepts
+        report_progress("concepts", n, len(convs))
         check_memory_or_exit(context=f"while extracting {conv.title[:40]!r}")
     cache.save()
 
@@ -228,15 +262,19 @@ def build(
     linker = Linker(vocabulary.concepts())
     linked_by_conv: dict[str, list[str]] = {}
     chunks: list[Chunk] = []
-    for conv in tqdm(convs, desc="Linking", disable=not show_progress):
+    for n, conv in enumerate(tqdm(convs, desc="Linking", disable=not show_progress), start=1):
+        if n == 1 or n % 25 == 0 or n == len(convs):
+            report_progress("link", n, len(convs))
         linked = [linker.link(m.text) for m in conv.messages]
         linked_by_conv[conv.uid] = linked
         chunks.extend(chunker.chunk_conversation(conv, linked, source=conversation_relpath(conv)))
 
+    report_progress("graph", 0, 1)
     canonical = {k for k, v in extractor.aliases.items() if k == v.lower()}
     graph = build_graph(convs, vocabulary, linked_by_conv, canonical)
     check_memory_or_exit(context="after building the graph")
 
+    report_progress("embed", 0, 1)
     if isinstance(embedder, str):
         embedder = build_embedder(settings.embedder if embedder == "auto" else embedder, settings.embed_model)
     embeddings = embed_with_cache(embedder, chunks, index_dir / "cache") if embedder else None
@@ -268,9 +306,11 @@ def build(
         "nodes": len(graph.nodes),
         "edges": len(graph.edges),
     }
+    report_progress("save", 0, 1)
     KnowledgeIndex.save(index_dir, chunks, graph, embeddings, manifest, concept_vectors)
 
     if write_vault:
+        report_progress("vault", 0, 1)
         writer = VaultWriter(vault)
         keep = {n for n, node in graph.nodes.items() if notable(node)}
         writer.write_conversations([(c, linked_by_conv[c.uid]) for c in convs], keep=keep)

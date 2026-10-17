@@ -4,18 +4,21 @@ from knowledgebase.parsers.chatgpt import ChatGPTChatParser
 from knowledgebase.parsers.claude import ClaudeChatParser
 from knowledgebase.parsers.claude_code import ClaudeCodeChatParser
 from knowledgebase.parsers.gemini import GeminiChatParser
+from knowledgebase.parsers.platform import Platform
 
+# Keyed by the plain string value so kb.yaml `exports:` keys keep working.
 PARSERS = {
-    "chatgpt": ChatGPTChatParser,
-    "claude": ClaudeChatParser,
-    "gemini": GeminiChatParser,
-    "claude-code": ClaudeCodeChatParser,
+    Platform.CHATGPT.value: ChatGPTChatParser,
+    Platform.CLAUDE.value: ClaudeChatParser,
+    Platform.GEMINI.value: GeminiChatParser,
+    Platform.CLAUDE_CODE.value: ClaudeCodeChatParser,
 }
 
 __all__ = [
     "Conversation",
     "Message",
     "PARSERS",
+    "Platform",
     "ChatGPTChatParser",
     "ClaudeChatParser",
     "ClaudeCodeChatParser",

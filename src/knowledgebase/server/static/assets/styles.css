@@ -323,6 +323,59 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0
 .empty-state h1 { font-family: var(--font-letter); font-style: italic; font-weight: 400; font-size: 34px; margin: 0; }
 .empty-state p { max-width: 34em; color: var(--ink-soft); }
 
+/* ---------------------------------------------------------------- your data (the second true overlay) */
+.primary {
+  height: 34px; padding: 0 15px; border-radius: var(--r-control);
+  border: 1px solid var(--select); background: var(--select); color: var(--paper);
+  font-weight: 700; font-size: 15px;
+}
+.primary:hover { filter: brightness(1.08); }
+.primary:disabled, .tool:disabled { opacity: 0.55; cursor: progress; }
+.empty-state .primary { margin-top: 6px; }
+
+.data-dialog {
+  width: min(560px, calc(100vw - 32px)); max-height: calc(100vh - 48px); padding: 0;
+  border: 1px solid var(--rule); border-radius: var(--r-float); box-shadow: var(--lift);
+  background: var(--paper-raised); color: var(--ink);
+}
+.data-dialog::backdrop { background: color-mix(in srgb, var(--paper) 55%, transparent); }
+.data-dialog .dialog-head {
+  position: sticky; top: 0; z-index: 1; display: flex; align-items: center; justify-content: space-between;
+  padding: 16px 20px 12px; background: var(--paper-raised); border-bottom: 1px solid var(--rule);
+}
+.data-dialog h1 { margin: 0; font-family: var(--font-letter); font-style: italic; font-weight: 500; font-size: 27px; }
+.data-dialog .icon-btn svg { fill: none; stroke: var(--ink); stroke-width: 2; }
+.data-dialog section { padding: 4px 20px 16px; }
+.data-dialog h2 {
+  margin: 14px 0 8px; padding-bottom: 5px; border-bottom: 1px solid var(--rule);
+  font-weight: 700; font-size: 14px; letter-spacing: 0.01em; color: var(--ink-soft);
+}
+.data-dialog label { display: block; font-weight: 600; font-size: 14.5px; margin: 10px 0 4px; }
+.data-dialog label.check { display: flex; gap: 8px; align-items: center; font-weight: 400; }
+.data-dialog select, .data-dialog input[type="text"], .data-dialog input[type="file"] {
+  width: 100%; min-height: 34px; padding: 4px 10px; font: inherit; color: inherit;
+  border: 1px solid var(--rule); border-radius: var(--r-control); background: var(--paper);
+}
+.data-dialog input[type="file"] { padding: 5px 8px; }
+.data-dialog .hint { margin: 4px 0 0; color: var(--ink-soft); font-size: 14px; }
+.data-dialog .row { display: flex; gap: 10px; align-items: center; margin-top: 12px; }
+.data-dialog .row input[type="text"] { flex: 1; min-width: 0; }
+.data-dialog form.row { margin-top: 10px; }
+.data-dialog progress { flex: 1; height: 8px; accent-color: var(--select); }
+.data-dialog .result { margin: 8px 0 0; font-size: 14.5px; min-height: 1.2em; overflow-wrap: anywhere; }
+.data-dialog .result.ok { color: var(--ink); }
+.data-dialog .result.error { color: var(--survey); }
+.data-dialog .sources { list-style: none; margin: 12px 0 0; padding: 0; }
+.data-dialog .sources li {
+  display: flex; justify-content: space-between; align-items: center; gap: 12px;
+  padding: 8px 0; border-top: 1px solid var(--rule); font-size: 14.5px;
+}
+.data-dialog .sources li > span { min-width: 0; overflow-wrap: anywhere; }
+.data-dialog .sources .muted { display: block; font-size: 13.5px; }
+@media (max-width: 900px) {
+  #open-data { padding: 0 9px; }
+}
+
 /* ---------------------------------------------------------------- narrow */
 @media (max-width: 1180px) {
   :root { --panel-w: 360px; --legend-w: 200px; }
