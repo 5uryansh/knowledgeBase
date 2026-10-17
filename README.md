@@ -57,6 +57,21 @@ kb search "how did I fix the e-ink ghosting"
 | `.[ml]` | `BAAI/bge-small-en-v1.5` (sentence-transformers) | GLiNER (zero-shot NER) | torch + ~200 MB models | best quality (default) |
 | `.[lite]` | WordLlama (static, weights ship in the wheel) | spaCy + technical-term patterns | ~20 MB | laptops, air-gapped, CI |
 
+**Or do it from the app, no terminal needed:** run `kb serve`, open http://127.0.0.1:3001 and click
+**Your data**:
+
+1. **Add chats:** pick where the export is from (ChatGPT, Claude, Claude Code or Gemini) and choose the zip
+   you were emailed. The server opens the zip, takes only the chat files (photos and audio are skipped),
+   runs that app's parser over them and tells you how many conversations it found, or why it can't
+   index the file (for example "This looks like a Claude export, not ChatGPT" or "Takeout exported My
+   Activity as HTML"). Uploads are kept under `data/app/imports/`; replacing an older export of the
+   same app is one checkbox.
+2. **Output folder:** where the Markdown notes and graph files go (your Obsidian vault). The choice is
+   remembered in `data/app/settings.json`; a `--vault` flag or `KB_VAULT_DIR` still wins over it.
+3. **Build:** builds in the background with a progress bar, then reloads the map.
+
+`kb build` reads the same uploads, so the terminal and the app always index the same chats.
+
 `kb build` picks the best backend available automatically (`--embedder`, `--entities` override it).
 Re-running it is cheap: parsing is idempotent and concept extraction is cached per conversation.
 
@@ -216,11 +231,12 @@ See [benchmarks/README.md](benchmarks/README.md) for metrics, methodology and ho
 
 ```
 src/knowledgebase/
-  parsers/        ChatGPT, Claude, Gemini (Takeout), Claude Code → Conversation
+  parsers/        ChatGPT, Claude, Gemini (Takeout), Claude Code → Conversation; `Platform` enum
+  workspace.py    exports uploaded in the app (zip validation, imports registry) and the output folder
   enrichment/     concept extraction, vocabulary, linker, Obsidian vault writer
   graph/          co-occurrence (NPMI), relations, analytics & discoveries, specificity
   retrieval/      chunker, BM25, embedders, vector store, graph retriever (PPR), fusion, index
-  server/         FastAPI app, MCP endpoint, static atlas UI
+  server/         FastAPI app, MCP endpoint, background builds, static atlas UI
   pipeline.py     end-to-end build          cli.py   `kb` command
 benchmarks/       LoCoMo converter, metrics, runner, tuner, legacy baseline, results/
 examples/         sample chats in each platform's native export format + sample queries
@@ -259,6 +275,8 @@ Any setting can also be given as an environment variable (`KB_VAULT_DIR`, `KB_EM
 - [ ] LLM-assisted relation extraction
 - [ ] OpenCode / Cursor / terminal-session parsers
 - [x] Static export of the atlas for sharing without a server
+- [x] Import exports and build from the app (zip upload per platform, output folder, build progress)
+- [ ] Desktop app (.dmg / .exe) for the UI, connecting to a backend on 3001 or any URL
 
 ---
 

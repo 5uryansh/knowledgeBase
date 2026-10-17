@@ -48,6 +48,13 @@ class KnowledgeService:
             self._index = None
             self._summaries = None
 
+    def use_index_dir(self, index_dir: Path) -> None:
+        """Serve a different vault (the output folder was changed in the app)."""
+        with self._lock:
+            self.index_dir = Path(index_dir)
+            self._index = None
+            self._summaries = None
+
     @property
     def summaries(self) -> dict:
         if self._summaries is None:

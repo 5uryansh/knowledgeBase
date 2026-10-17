@@ -90,9 +90,11 @@ async function staticApi(path) {
   throw new Error("Passage search needs the live server (kb serve)");
 }
 
+// The desktop app sets window.KB_API_BASE (default backend: http://127.0.0.1:3001); served by kb serve it is "".
+const API_BASE = String(window.KB_API_BASE || "").replace(/\/$/, "");
 async function api(path) {
   if (STATIC) return staticApi(path);
-  const res = await fetch(path);
+  const res = await fetch(API_BASE + path);
   if (res.status === 503) throw Object.assign(new Error("not indexed"), { code: 503 });
   if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || `Request failed (${res.status})`);
   return res.json();
@@ -810,6 +812,180 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "/" && document.activeElement !== input) { e.preventDefault(); input.focus(); }
   if (e.key === "Escape" && document.activeElement !== input) clearSelection();
 });
+// ------------------------------------------------------------------ your data: imports, output folder, build
+const dataDialog = $("#data-dialog");
+let platforms = [];
+let buildTimer = null;
+
+async function send(method, path, body) {
+  const res = await fetch(API_BASE + path, {
+    method, headers: body === undefined ? {} : { "Content-Type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw Object.assign(new Error(data.detail || `Request failed (${res.status})`), { status: res.status, data });
+  return data;
+}
+
+function setResult(el, text, kind = "") {
+  el.textContent = text;
+  el.className = `result ${kind}`;
+}
+
+function rangeText(r) {
+  return r && r[0] ? (r[0] === r[1] ? fmtDate(r[0]) : `${fmtDate(r[0])} to ${fmtDate(r[1])}`) : "";
+}
+
+function syncPlatformHint() {
+  const p = platforms.find((x) => x.id === $("#import-platform").value);
+  $("#import-hint").textContent = p ? p.hint : "";
+  $("#import-replace-label").textContent = `Replace earlier ${p ? p.label : ""} imports`;
+}
+
+function renderWorkspace(ws) {
+  const items = ws.imports.map((r) => `<li>
+      <span><strong>${esc(r.label)}</strong> · ${r.conversations.toLocaleString()} conversations${rangeText(r.date_range) ? ` · ${esc(rangeText(r.date_range))}` : ""}
+      <span class="muted">${esc(r.filename)}</span></span>
+      <button type="button" class="tool" data-remove-import="${esc(r.id)}">Remove</button></li>`);
+  const configured = ws.configured_sources.map((s) => `<li><span><strong>${esc(s.label)}</strong>
+      <span class="muted">read from ${esc(s.path)}</span></span></li>`);
+  $("#import-list").innerHTML = items.concat(configured).join("") || `<li class="muted">Nothing added yet.</li>`;
+  if (document.activeElement !== $("#output-path")) $("#output-path").value = ws.output.path;
+  setResult($("#output-result"), ws.output.note || (ws.output.has_index ? "This folder has a built knowledge base." : ""));
+  showBuild(ws.build);
+}
+
+async function refreshWorkspace() {
+  renderWorkspace(await api("/api/workspace"));
+}
+
+async function openDataDialog() {
+  if (!platforms.length) {
+    platforms = await api("/api/platforms");
+    $("#import-platform").innerHTML = platforms.map((p) => `<option value="${esc(p.id)}">${esc(p.label)}</option>`).join("");
+    syncPlatformHint();
+  }
+  if (!dataDialog.open) dataDialog.showModal();
+  await refreshWorkspace().catch((err) => setResult($("#import-result"), err.message, "error"));
+}
+
+function upload(file, platform, replace, onProgress) {
+  // XHR rather than fetch: exports can be gigabytes, and only XHR reports upload progress.
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    const q = new URLSearchParams({ platform, filename: file.name, replace: String(replace) });
+    xhr.open("POST", `${API_BASE}/api/imports?${q}`);
+    xhr.setRequestHeader("Content-Type", "application/octet-stream");
+    xhr.upload.onprogress = (e) => e.lengthComputable && onProgress(e.loaded / e.total);
+    xhr.onload = () => {
+      let data = {};
+      try { data = JSON.parse(xhr.responseText); } catch { /* not json */ }
+      if (xhr.status >= 200 && xhr.status < 300) resolve(data);
+      else reject(Object.assign(new Error(data.detail || `Upload failed (${xhr.status})`), { data }));
+    };
+    xhr.onerror = () => reject(new Error("Upload failed: the server could not be reached."));
+    xhr.send(file);
+  });
+}
+
+$("#import-platform").addEventListener("change", syncPlatformHint);
+$("#import-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const file = $("#import-file").files[0];
+  if (!file) return;
+  const platform = $("#import-platform").value;
+  const bar = $("#import-progress");
+  const btn = $("#import-submit");
+  btn.disabled = true; bar.hidden = false; bar.value = 0;
+  setResult($("#import-result"), `Uploading ${file.name}…`);
+  try {
+    const rec = await upload(file, platform, $("#import-replace").checked, (f) => {
+      bar.value = f;
+      if (f >= 1) setResult($("#import-result"), "Checking the export…");
+    });
+    const range = rangeText(rec.date_range);
+    setResult($("#import-result"), `Added ${rec.conversations.toLocaleString()} ${rec.label} conversations${range ? ` (${range})` : ""}. Build to add them to your atlas.`, "ok");
+    $("#import-file").value = "";
+    await refreshWorkspace();
+  } catch (err) {
+    const detected = err.data && err.data.detected;
+    setResult($("#import-result"), err.message, "error");
+    if (detected) { $("#import-platform").value = detected; syncPlatformHint(); }
+  } finally {
+    btn.disabled = false; bar.hidden = true;
+  }
+});
+
+$("#import-list").addEventListener("click", async (e) => {
+  const id = e.target.closest("[data-remove-import]")?.dataset.removeImport;
+  if (!id) return;
+  try { await send("DELETE", `/api/imports/${encodeURIComponent(id)}`); await refreshWorkspace(); setResult($("#import-result"), "Removed. Build again to drop those chats from your atlas.", "ok"); }
+  catch (err) { setResult($("#import-result"), err.message, "error"); }
+});
+
+$("#output-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  try {
+    const out = await send("PUT", "/api/settings/output", { path: $("#output-path").value });
+    $("#output-path").value = out.path;
+    setResult($("#output-result"), out.note || (out.has_index ? "Switched to the knowledge base in this folder." : "Saved. Build to write your notes and graph here."), "ok");
+    if (out.has_index) await reloadAtlas();
+  } catch (err) { setResult($("#output-result"), err.message, "error"); }
+});
+
+function showBuild(st) {
+  const bar = $("#build-progress");
+  const btn = $("#build-start");
+  const running = st && st.status === "running";
+  btn.disabled = running;
+  bar.hidden = !running;
+  clearTimeout(buildTimer);
+  if (running) {
+    bar.value = st.total ? st.done / st.total : 0;
+    if (!st.total) bar.removeAttribute("value");
+    const count = st.total > 1 ? ` (${st.done.toLocaleString()} of ${st.total.toLocaleString()})` : "";
+    setResult($("#build-result"), `${st.label}${count}…`);
+    buildTimer = setTimeout(pollBuild, 1000);
+  } else if (st && st.status === "error") setResult($("#build-result"), st.error, "error");
+  else if (st && st.status === "done") setResult($("#build-result"), `Built: ${st.report}`, "ok");
+  else setResult($("#build-result"), "");
+}
+
+async function pollBuild() {
+  const st = await api("/api/build").catch(() => null);
+  if (!st) { buildTimer = setTimeout(pollBuild, 3000); return; }
+  showBuild(st);
+  if (st.status === "done" && state.lastBuild !== st.finished_at) {
+    state.lastBuild = st.finished_at;
+    await reloadAtlas();
+  }
+}
+
+$("#build-start").addEventListener("click", async () => {
+  try { showBuild(await send("POST", "/api/build")); }
+  catch (err) { setResult($("#build-result"), err.message, "error"); }
+});
+
+async function reloadAtlas() {
+  try {
+    const stats = await api("/api/stats");
+    $("#empty-state").hidden = true;
+    state.region = null; state.history = []; clearSelection();
+    await loadOverview();
+    renderIntro(stats);
+  } catch (err) {
+    if (err.code === 503) $("#empty-state").hidden = false;
+  }
+}
+
+$("#open-data").addEventListener("click", openDataDialog);
+$("#empty-add").addEventListener("click", openDataDialog);
+if (STATIC) { $("#open-data").hidden = true; $("#empty-add").hidden = true; }
+else {
+  // A build started earlier (or from another window) keeps reporting here, and reloads the map when it ends.
+  api("/api/build").then((st) => { state.lastBuild = st.finished_at; showBuild(st); }).catch(() => {});
+}
+
 
 // ------------------------------------------------------------------ boot
 (async function boot() {
