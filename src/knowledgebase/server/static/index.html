@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>knowledgeBase atlas</title>
+  <meta name="description" content="An atlas of everything you have discussed with AI assistants.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='9' cy='11' r='5' fill='%231D6B8A'/%3E%3Ccircle cx='23' cy='9' r='3.5' fill='%231E2A32'/%3E%3Ccircle cx='19' cy='23' r='6' fill='%23B3243A'/%3E%3Cpath d='M9 11 23 9 19 23Z' fill='none' stroke='%231E2A32' stroke-width='1.6'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Libre+Bodoni:ital,wght@1,400..700&family=Overpass:ital,wght@0,300..800;1,300..800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/assets/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="knowledgeBase, reset the map">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="9" cy="11" r="5"/><circle cx="23" cy="9" r="3.5"/><circle cx="19" cy="23" r="6"/><path d="M9 11 23 9 19 23Z"/></svg>
+      <span>knowledgeBase</span>
+    </a>
+    <form class="search" id="search-form" role="search" autocomplete="off">
+      <label class="visually-hidden" for="search-input">Search concepts or your past conversations</label>
+      <input id="search-input" type="search" placeholder="Find a concept or ask about your past chats" aria-autocomplete="list" aria-controls="suggestions" aria-expanded="false">
+      <ul id="suggestions" class="suggestions" role="listbox" hidden></ul>
+    </form>
+    <nav class="modes" aria-label="Views">
+      <button type="button" class="mode" id="mode-discover" aria-pressed="false">Discover</button>
+      <button type="button" class="icon-btn" id="theme-toggle" aria-label="Switch between light and dark map">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9 7 7 0 0 1-9-9z"/></svg>
+      </button>
+    </nav>
+  </header>
+
+  <main class="stage">
+    <div id="map" class="map" aria-label="Concept map. Select a concept to explore its connections."></div>
+
+    <div class="map-tools" role="toolbar" aria-label="Map controls">
+      <button type="button" class="tool" id="zoom-fit">Fit map</button>
+      <button type="button" class="tool" id="reset-map">Reset map</button>
+    </div>
+
+    <p class="map-status" id="map-status" aria-live="polite"></p>
+
+    <aside class="regions" id="regions" aria-label="Regions of your knowledge">
+      <h2>Regions</h2>
+      <ul id="region-list"></ul>
+    </aside>
+
+    <section class="panel" id="panel" aria-live="polite" aria-label="Details">
+      <div class="panel-inner" id="panel-body"></div>
+    </section>
+  </main>
+
+  <div class="empty-state" id="empty-state" hidden>
+    <h1>No knowledge base yet</h1>
+    <p>Put your chat exports in <code>data/</code> and run <code>kb build</code>, or try the sample data with <code>kb demo</code>. Then reload this page.</p>
+  </div>
+
+  <script src="/assets/vendor/force-graph.min.js"></script>
+  <script type="module" src="/assets/app.js"></script>
+</body>
+</html>

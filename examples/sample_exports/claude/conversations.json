@@ -1,0 +1,673 @@
+[
+ {
+  "uuid": "3eeff65d-d059-984d-cc14-ec188ff36ea7",
+  "name": "Writing my first Triton kernel: fused softmax",
+  "created_at": "2025-11-12T19:12:00Z",
+  "chat_messages": [
+   {
+    "uuid": "c4d6a0f6-48d6-e813-8f73-237486f82d6d",
+    "sender": "human",
+    "created_at": "2025-11-12T19:12:00Z",
+    "content": [
+     {
+      "type": "text",
+      "text": "I want to write a fused softmax kernel in Triton to understand how it works. Can you walk me through it?"
+     }
+    ]
+   },
+   {
+    "uuid": "9ddcb524-b318-2c71-4b55-34caa05b0ae0",
+    "sender": "assistant",
+    "created_at": "2025-11-12T19:15:00Z",
+    "content": [
+     {
+      "type": "text",
+      "text": "Sure. A row-wise softmax needs max, subtract, exp, sum and divide. Unfused, PyTorch launches several CUDA kernels and reads the row from global memory each time. In Triton you load one row into SRAM once, do all five steps there and write the result once, so the kernel is memory-bound only once. Use tl.program_id(0) to pick the row, tl.arange for the column offsets, tl.load with a mask for the ragged tail, then tl.max, tl.exp and tl.sum. BLOCK_SIZE must be a power of two at least as large as the row."
+     }
+    ]
+   },
+   {
+    "uuid": "469f21b8-0a5a-9042-61e2-e04cdd9a6725",
+    "sender": "human",
+    "created_at": "2025-11-12T19:18:00Z",
+    "content": [
+     {
+      "type": "text",
+      "text": "My Triton softmax is correct but slower than torch.softmax for small rows."
+     }
+    ]
+   },
+   {
+    "uuid": "3386640d-a60d-10aa-715d-31021ba2f7e5",
+    "sender": "assistant",
+    "created_at": "2025-11-12T19:21:00Z",
+    "content": [
+     {
+      "type": "text",
+      "text": "For small rows the launch configuration matters more than fusion. Set num_warps based on BLOCK_SIZE (4 warps up to 2048 columns, 8 above) and process several rows per program for tiny rows. Also benchmark with triton.testing.do_bench, not time.time, because CUDA calls are asynchronous. For long rows the fused Triton kernel should beat PyTorch clearly because it avoids extra memory traffic."
+     }
+    ]
+   },
+   {
+    "uuid": "d9d2550d-8f20-7c20-95a8-83222dd417df",
+    "sender": "human",
+    "created_at": "2025-11-12T19:24:00Z",
+    "content": [
+     {
+      "type": "text",
+      "text": "That fixed it. How does this relate to FlashAttention?"
+     }
+    ]
+   },
+   {
+    "uuid": "7ce7a316-20e0-4ba3-605b-edbb5a5a48ba",
+    "sender": "assistant",
+    "created_at": "2025-11-12T19:27:00Z",
+    "content": [
+     {
+      "type": "text",
+      "text": "FlashAttention is the same idea applied to attention: tile Q, K and V into SRAM, compute softmax online with a running max and running sum, and never materialize the full attention matrix in HBM. It is the fused softmax trick plus tiling over the sequence dimension. Once you understand your fused softmax, the FlashAttention forward pass is readable."
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "uuid": "a01bf758-013d-8a93-705f-c90484deaddb",
+  "name": "Serving a 7B model with vLLM behind an OpenAI-compatible API",
+  "created_at": "2025-12-06T19:12:00Z",
+  "chat_messages": [
+   {
+    "uuid": "d186e354-f048-98f7-9bb8-beb9da6968cd",
+    "sender": "human",
+    "created_at": "2025-12-06T19:12:00Z",
+    "content": [
+     {
+      "type": "text",
+      "text": "I want to serve Qwen 7B with vLLM in Docker and call it from my agents with the OpenAI SDK. How?"
+     }
+    ]
+   },
+   {
+    "uuid": "fd51f2dd-8d77-5a69-ba4c-e367e8a3819c",
+    "sender": "assistant",
+    "created_at": "2025-12-06T19:15:00Z",
+    "content": [
+     {
+      "type": "text",
+      "text": "Run the official image: docker run --gpus all -p 8000:8000 vllm/vllm-openai --model Qwen/Qwen2.5-7B-Instruct-AWQ --quantization awq --max-model-len 8192. vLLM exposes /v1/chat/completions, so any OpenAI SDK client works by setting base_url to http://localhost:8000/v1. vLLM relies on PagedAttention to manage the KV cache in blocks, which is why it fits many concurrent requests."
+     }
+    ]
+   },
+   {
+    "uuid": "8e5149bb-4a7c-5800-1929-a6b4a155095e",
+    "sender": "human",
+    "created_at": "2025-12-06T19:18:00Z",
+    "content": [
+     {
+      "type": "text",
+      "text": "It crashes with CUDA out of memory at startup."
+     }
+    ]
+   },
+   {
+    "uuid": "14b1c6ce-440c-5448-edc3-1a72db061ea4",
+    "sender": "assistant",
+    "created_at": "2025-12-06T19:21:00Z",
+    "content": [
+     {
+      "type": "text",
+      "text": "vLLM pre-allocates the KV cache using gpu_memory_utilization (default 0.9). On a 12 GB card with a 4-bit 7B model, lower --max-model-len to 4096 and set --gpu-memory-utilization 0.85. The KV cache size grows with context length and number of sequences, so max-model-len is the biggest lever."
+     }
+    ]
+   },
+   {
+    "uuid": "50acc4aa-225e-c299-018a-562eb5f700f8",
+    "sender": "human",
+    "created_at": "2025-12-06T19:24:00Z",
+    "content": [
+     {
+      "type": "text",
+      "text": "Works now. Can I use tool calling from agents?"
+     }
+    ]
+   },
+   {
+    "uuid": "ba7673a5-b12c-541a-8050-a2850db5d105",
+    "sender": "assistant",
+    "created_at": "2025-12-06T19:27:00Z",
+    "content": [
+     {
+      "type": "text",
+      "text": "Yes: start vLLM with --enable-auto-tool-choice and the right --tool-call-parser for the model (hermes for Qwen). Then the OpenAI tools parameter works, and agent frameworks that speak the OpenAI API can call functions. If you later expose tools through the Model Context Protocol, an MCP client can bridge them to the model."
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "uuid": "a6cca3ff-24e1-7a10-c223-07350eb43f3c",
+  "name": "FAISS index types: Flat vs IVF vs HNSW",
+  "created_at": "2026-01-18T19:12:00Z",
+  "chat_messages": [
+   {
+    "uuid": "aebea5be-a480-dcc4-839e-b7b33b13a3be",
+    "sender": "human",
+    "created_at": "2026-01-18T19:12:00Z",
+    "content": [
+     {
+      "type": "text",
+      "text": "Explain the FAISS index types and when to use each."
+     }
+    ]
+   },
+   {
+    "uuid": "f67cf897-7d76-32ee-8883-2a5973c9e2bf",
+    "sender": "assistant",
+    "created_at": "2026-01-18T19:15:00Z",
+    "content": [
+     {
+      "type": "text",
+      "text": "IndexFlatIP / IndexFlatL2 is brute force: exact results, no training, linear time. IVF (IndexIVFFlat) clusters vectors with k-means into nlist cells and searches only nprobe cells: much faster, approximate, and it needs training. HNSW (IndexHNSWFlat) builds a navigable small-world graph: excellent recall/latency without training but more memory. Product quantization (IVFPQ) compresses vectors for billion-scale search. FAISS also supports the GPU through CUDA, which accelerates both training and search by an order of magnitude."
+     }
+    ]
+   },
+   {
+    "uuid": "74035859-b513-8473-ff16-aa6cea2d65aa",
+    "sender": "human",
+    "created_at": "2026-01-18T19:18:00Z",
+    "content": [
+     {
+      "type": "text",
+      "text": "For 200k chunks from my chat history?"
+     }
+    ]
+   },
+   {
+    "uuid": "029e2e89-8b37-1cb9-6950-5f2d0879c214",
+    "sender": "assistant",
+    "created_at": "2026-01-18T19:21:00Z",
+    "content": [
+     {
+      "type": "text",
+      "text": "Use IndexFlatIP on normalized embeddings. 200k x 384 floats is about 300 MB and a query takes a few milliseconds on CPU. Approximate indexes only pay off in the millions."
+     }
+    ]
+   },
+   {
+    "uuid": "ed4d1b8c-12ef-6c4e-c056-11593876877b",
+    "sender": "human",
+    "created_at": "2026-01-18T19:24:00Z",
+    "content": [
+     {
+      "type": "text",
+      "text": "Interesting that HNSW is itself a graph."
+     }
+    ]
+   },
+   {
+    "uuid": "b1f96597-b096-be54-6b58-e1d5cd8804c7",
+    "sender": "assistant",
+    "created_at": "2026-01-18T19:27:00Z",
+    "content": [
+     {
+      "type": "text",
+      "text": "Yes, HNSW is a proximity graph over vectors, while a knowledge graph is a graph over concepts. They solve different problems: HNSW finds similar vectors quickly; a knowledge graph captures explicit relationships. GraphRAG-style systems combine both: vector search to find entry points, graph traversal to follow relationships."
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "uuid": "668d1fbf-4463-9ef5-a3a7-baf647fb1dad",
+  "name": "GraphRAG: when does a knowledge graph help retrieval?",
+  "created_at": "2026-02-14T19:12:00Z",
+  "chat_messages": [
+   {
+    "uuid": "842d43f0-2448-2f11-20b0-ed8d4a6573e5",
+    "sender": "human",
+    "created_at": "2026-02-14T19:12:00Z",
+    "content": [
+     {
+      "type": "text",
+      "text": "Does GraphRAG actually help, or is it hype?"
+     }
+    ]
+   },
+   {
+    "uuid": "42ebafac-7339-a70a-d195-609f9480303e",
+    "sender": "assistant",
+    "created_at": "2026-02-14T19:15:00Z",
+    "content": [
+     {
+      "type": "text",
+      "text": "It helps for multi-hop questions, where the answer needs facts from several documents connected by an entity. Plain vector search retrieves each document independently, so it misses the second hop. A knowledge graph links entities across documents, and graph traversal such as Personalized PageRank can follow those links: HippoRAG showed large gains on multi-hop QA this way. For single-hop factual lookups, hybrid search is usually enough."
+     }
+    ]
+   },
+   {
+    "uuid": "0d30c92e-3bcf-a0d3-11ba-00cf9c6d5189",
+    "sender": "human",
+    "created_at": "2026-02-14T19:18:00Z",
+    "content": [
+     {
+      "type": "text",
+      "text": "My graph is built from co-occurrence of entities. Problem: some nodes connect to everything."
+     }
+    ]
+   },
+   {
+    "uuid": "5ce868c9-1ad3-96d2-bfb0-5f48378a9919",
+    "sender": "assistant",
+    "created_at": "2026-02-14T19:21:00Z",
+    "content": [
+     {
+      "type": "text",
+      "text": "Those are hub nodes. Raw co-occurrence counts favor frequent entities, so they dominate expansion. Weight edges by normalized pointwise mutual information (NPMI), which rewards pairs that co-occur more than chance, and down-weight seeds by inverse document frequency. Also canonicalize entities so PyTorch, torch and pytorch 2 become one node; otherwise the graph silently fragments."
+     }
+    ]
+   },
+   {
+    "uuid": "d2c097cb-f003-8320-3870-91992fa06f05",
+    "sender": "human",
+    "created_at": "2026-02-14T19:24:00Z",
+    "content": [
+     {
+      "type": "text",
+      "text": "How do I know if the graph is helping?"
+     }
+    ]
+   },
+   {
+    "uuid": "24b00d2f-a150-6833-9603-76f403ab0534",
+    "sender": "assistant",
+    "created_at": "2026-02-14T19:27:00Z",
+    "content": [
+     {
+      "type": "text",
+      "text": "Evaluate graph expansion against hybrid search on the same benchmark, with a multi-hop slice. If graph expansion only adds noise, it will lower precision at the top. A good design fuses graph scores with BM25 and dense rankings instead of appending graph results."
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "uuid": "5e9231cf-5b84-9227-58f1-6a0419e3d729",
+  "name": "Entity extraction with GLiNER vs spaCy",
+  "created_at": "2026-03-11T19:12:00Z",
+  "chat_messages": [
+   {
+    "uuid": "9d2bbf98-dba6-102b-95d6-fb2d82fc25e1",
+    "sender": "human",
+    "created_at": "2026-03-11T19:12:00Z",
+    "content": [
+     {
+      "type": "text",
+      "text": "For extracting technologies and concepts from chat transcripts, should I use GLiNER or spaCy?"
+     }
+    ]
+   },
+   {
+    "uuid": "1fbfb43b-3773-8383-c7f8-f36f34f3ef8e",
+    "sender": "assistant",
+    "created_at": "2026-03-11T19:15:00Z",
+    "content": [
+     {
+      "type": "text",
+      "text": "GLiNER is a zero-shot NER model: you pass labels like technology, concept, person, organization and it finds them, which suits technical text where spaCy's news-trained labels miss things like FAISS or Triton. spaCy is faster and runs everywhere, and its noun chunks are good topic candidates. A practical pipeline uses GLiNER when available and spaCy plus regex patterns for CamelCase and acronyms as a fallback."
+     }
+    ]
+   },
+   {
+    "uuid": "d6a7aa25-56fc-d14b-2a9d-679426ae9f32",
+    "sender": "human",
+    "created_at": "2026-03-11T19:18:00Z",
+    "content": [
+     {
+      "type": "text",
+      "text": "GLiNER sometimes extracts junk like 'thanks' or 'awesome'."
+     }
+    ]
+   },
+   {
+    "uuid": "4a9c2d69-2544-abfc-8f61-69dddeb13d58",
+    "sender": "assistant",
+    "created_at": "2026-03-11T19:21:00Z",
+    "content": [
+     {
+      "type": "text",
+      "text": "Filter with a stop list and a part-of-speech check: a single-word entity should be used mostly as a noun in the text. Also require global support: keep concepts that appear in several conversations or with strong evidence in one."
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "uuid": "32f22968-6137-d820-5399-d3d7d9a9a431",
+  "name": "Prisma migrations with PostgreSQL in Docker",
+  "created_at": "2025-12-10T19:12:00Z",
+  "chat_messages": [
+   {
+    "uuid": "8c3bdf5e-8ce7-9b87-c16b-503b04cd6bd6",
+    "sender": "human",
+    "created_at": "2025-12-10T19:12:00Z",
+    "content": [
+     {
+      "type": "text",
+      "text": "Set up Prisma with PostgreSQL running in Docker Compose for local development."
+     }
+    ]
+   },
+   {
+    "uuid": "58bcb0f8-bf6d-742e-1791-579fac92d343",
+    "sender": "assistant",
+    "created_at": "2025-12-10T19:15:00Z",
+    "content": [
+     {
+      "type": "text",
+      "text": "Add a postgres service to docker-compose.yml with a named volume, expose 5432, and set DATABASE_URL=postgresql://app:app@localhost:5432/app in .env. Then npx prisma migrate dev --name init creates the tables and generates the client. In CI, use prisma migrate deploy instead of migrate dev."
+     }
+    ]
+   },
+   {
+    "uuid": "d1fe247b-3063-878f-3c7a-31778dfd571e",
+    "sender": "human",
+    "created_at": "2025-12-10T19:18:00Z",
+    "content": [
+     {
+      "type": "text",
+      "text": "Migration fails with 'relation already exists'."
+     }
+    ]
+   },
+   {
+    "uuid": "6f163ce4-cd51-8662-9c6c-d4ae438721a5",
+    "sender": "assistant",
+    "created_at": "2025-12-10T19:21:00Z",
+    "content": [
+     {
+      "type": "text",
+      "text": "The database already has tables that Prisma's migration history does not know about. Either reset the dev database with prisma migrate reset, or baseline: create the initial migration with prisma migrate diff and mark it applied with prisma migrate resolve --applied. Baselining is the right move for an existing production database."
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "uuid": "1114aa15-21cb-d366-c171-7099e7606aee",
+  "name": "Oracle Cloud free tier ARM instance for self-hosting",
+  "created_at": "2025-12-28T19:12:00Z",
+  "chat_messages": [
+   {
+    "uuid": "dc3fd902-0829-3e4b-d004-13bae038c127",
+    "sender": "human",
+    "created_at": "2025-12-28T19:12:00Z",
+    "content": [
+     {
+      "type": "text",
+      "text": "Can I self-host my side projects on the Oracle Cloud free tier ARM instance?"
+     }
+    ]
+   },
+   {
+    "uuid": "d1c2fc3a-9151-b270-5deb-8c17bd4fe9bb",
+    "sender": "assistant",
+    "created_at": "2025-12-28T19:15:00Z",
+    "content": [
+     {
+      "type": "text",
+      "text": "Yes, the Always Free Ampere A1 shape gives up to 4 OCPUs and 24 GB RAM, which is plenty for Docker Compose stacks, a Postgres database and small services. Capacity is often unavailable in popular regions, so people script retries of instance creation. Use ARM64 images: most official Docker images are multi-arch, but check custom ones. Open ports both in the VCN security list and in the instance firewall."
+     }
+    ]
+   },
+   {
+    "uuid": "cedbb8d9-2d18-4d76-7111-f888735e14a8",
+    "sender": "human",
+    "created_at": "2025-12-28T19:18:00Z",
+    "content": [
+     {
+      "type": "text",
+      "text": "Can it run an LLM?"
+     }
+    ]
+   },
+   {
+    "uuid": "8c236f75-4a34-72d9-903d-671db199cf5d",
+    "sender": "assistant",
+    "created_at": "2025-12-28T19:21:00Z",
+    "content": [
+     {
+      "type": "text",
+      "text": "CPU-only. With llama.cpp and a 4-bit GGUF quantized 7B model you can get a few tokens per second on 4 Ampere cores, fine for background jobs but slow for chat. For interactive use, a GPU host or a hosted inference endpoint is better."
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "uuid": "f74ea2d9-4a36-e7b8-caed-46c7dbd425ec",
+  "name": "Kubernetes or just Docker Compose?",
+  "created_at": "2026-04-02T19:12:00Z",
+  "chat_messages": [
+   {
+    "uuid": "c47f922d-3165-8967-e4a4-4802d8578024",
+    "sender": "human",
+    "created_at": "2026-04-02T19:12:00Z",
+    "content": [
+     {
+      "type": "text",
+      "text": "Should I move my side projects from Docker Compose to Kubernetes?"
+     }
+    ]
+   },
+   {
+    "uuid": "273745d2-a6cf-6bc2-123c-61436c0376c2",
+    "sender": "assistant",
+    "created_at": "2026-04-02T19:15:00Z",
+    "content": [
+     {
+      "type": "text",
+      "text": "Probably not. Kubernetes shines with many services, autoscaling, multiple nodes and teams. For a few services on one VM, Docker Compose is simpler and cheaper to operate. If you want a middle ground, k3s gives you lightweight Kubernetes on a single node, but you take on manifests, ingress controllers and certificate management. Move when Compose's limitations actually hurt."
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "uuid": "2b528b28-3053-44b9-b6a5-7db22b5967ff",
+  "name": "World models: Dreamer and learning in imagination",
+  "created_at": "2025-11-22T19:12:00Z",
+  "chat_messages": [
+   {
+    "uuid": "2e41de12-5306-4e4d-5f97-d205d91e8db4",
+    "sender": "human",
+    "created_at": "2025-11-22T19:12:00Z",
+    "content": [
+     {
+      "type": "text",
+      "text": "What are world models in reinforcement learning, like DreamerV3?"
+     }
+    ]
+   },
+   {
+    "uuid": "66a5febc-5c0c-e253-2c6d-302f84fc7555",
+    "sender": "assistant",
+    "created_at": "2025-11-22T19:15:00Z",
+    "content": [
+     {
+      "type": "text",
+      "text": "A world model learns the environment's dynamics in a compact latent space: an encoder maps observations to latent states, a recurrent model predicts the next latent state and the reward, and a decoder reconstructs observations. DreamerV3 then trains the actor and critic entirely on imagined trajectories inside the world model, which makes it far more sample-efficient than model-free methods like PPO. Model-based RL trades environment interactions for compute."
+     }
+    ]
+   },
+   {
+    "uuid": "e2952c06-3cb2-868d-9cc9-560c840e2b50",
+    "sender": "human",
+    "created_at": "2025-11-22T19:18:00Z",
+    "content": [
+     {
+      "type": "text",
+      "text": "How is that related to embeddings?"
+     }
+    ]
+   },
+   {
+    "uuid": "34fde414-8da2-bdf8-ff9e-68b4789d6820",
+    "sender": "assistant",
+    "created_at": "2025-11-22T19:21:00Z",
+    "content": [
+     {
+      "type": "text",
+      "text": "The latent state is a learned embedding of the environment, like a sentence embedding is a learned representation of text. Both compress high-dimensional inputs into vectors where similar situations are close. In world models the representation is trained to be predictive of the future rather than to match similar texts."
+     }
+    ]
+   },
+   {
+    "uuid": "4a6f2dab-70fe-449a-3e10-e41ecf044ff1",
+    "sender": "human",
+    "created_at": "2025-11-22T19:24:00Z",
+    "content": [
+     {
+      "type": "text",
+      "text": "And MuZero?"
+     }
+    ]
+   },
+   {
+    "uuid": "d332b5b2-26ef-6339-55b8-95b17e377985",
+    "sender": "assistant",
+    "created_at": "2025-11-22T19:27:00Z",
+    "content": [
+     {
+      "type": "text",
+      "text": "MuZero also learns a model, but it never reconstructs observations: its latent dynamics only need to predict reward, value and policy, and it plans with Monte Carlo tree search in that latent space. Dreamer imagines with a learned simulator; MuZero plans with a learned value-equivalent model."
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "uuid": "58bc4a87-254a-b75c-d245-4bc27f0781c2",
+  "name": "Building an MCP server for my knowledge graph",
+  "created_at": "2026-04-20T19:12:00Z",
+  "chat_messages": [
+   {
+    "uuid": "20dbee6e-6abe-f468-08a6-31fac34def50",
+    "sender": "human",
+    "created_at": "2026-04-20T19:12:00Z",
+    "content": [
+     {
+      "type": "text",
+      "text": "I want my coding agents to query my personal knowledge graph. Should I build an MCP server?"
+     }
+    ]
+   },
+   {
+    "uuid": "d14ae4d6-5bd1-30f6-b7f0-27b4ca94f461",
+    "sender": "assistant",
+    "created_at": "2026-04-20T19:15:00Z",
+    "content": [
+     {
+      "type": "text",
+      "text": "Yes. The Model Context Protocol lets any MCP client (Claude Code, Claude Desktop, Cursor, OpenCode) discover and call your tools. Expose a few focused tools: search_knowledge for graph-aware retrieval, explore_concept for a node and its neighbors, and find_connection for paths between two concepts. Use the Streamable HTTP transport so one local server on a port serves every client; JSON-RPC requests go to a single endpoint like /api/mcp."
+     }
+    ]
+   },
+   {
+    "uuid": "5e569cf6-c813-b94f-2f90-2ab6a5c054ca",
+    "sender": "human",
+    "created_at": "2026-04-20T19:18:00Z",
+    "content": [
+     {
+      "type": "text",
+      "text": "How do I make the tool results useful for the model?"
+     }
+    ]
+   },
+   {
+    "uuid": "a6d6653d-5c62-b65f-2216-fe06c6bcb830",
+    "sender": "assistant",
+    "created_at": "2026-04-20T19:21:00Z",
+    "content": [
+     {
+      "type": "text",
+      "text": "Return compact text with the conversation title, date and source so the model can cite, plus structured content for programmatic use. Keep results short (top 5-10 passages), explain why each result matched (which concepts connected it) and handle unknown concepts with a clear error message instead of an exception."
+     }
+    ]
+   },
+   {
+    "uuid": "fd00837e-b92f-5bd9-7948-7a65f118a2ad",
+    "sender": "human",
+    "created_at": "2026-04-20T19:24:00Z",
+    "content": [
+     {
+      "type": "text",
+      "text": "Security concerns?"
+     }
+    ]
+   },
+   {
+    "uuid": "f560e446-bd08-30ce-aa39-3673d364d1a3",
+    "sender": "assistant",
+    "created_at": "2026-04-20T19:27:00Z",
+    "content": [
+     {
+      "type": "text",
+      "text": "Bind to localhost by default and validate the Origin header to prevent DNS rebinding attacks from browsers. Tools here are read-only, which you can declare with the readOnlyHint annotation."
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "uuid": "3b7b189d-ed01-b544-7099-2c4b37ad2c6c",
+  "name": "Temporal knowledge graphs: tracking how ideas evolve",
+  "created_at": "2026-09-15T19:12:00Z",
+  "chat_messages": [
+   {
+    "uuid": "52579885-6a58-f385-ca10-1ad9b1d44c45",
+    "sender": "human",
+    "created_at": "2026-09-15T19:12:00Z",
+    "content": [
+     {
+      "type": "text",
+      "text": "How could my knowledge graph track how my understanding of a topic changes over time?"
+     }
+    ]
+   },
+   {
+    "uuid": "a4f1325d-fbdc-e744-a737-2c49b2e1e230",
+    "sender": "assistant",
+    "created_at": "2026-09-15T19:15:00Z",
+    "content": [
+     {
+      "type": "text",
+      "text": "Store timestamps on mentions and edges: first_seen, last_seen and per-month counts. Then you can show a timeline per concept, detect topics you have not revisited in months, and compare communities across periods to see which interests grew. Temporal edges also help retrieval for questions like 'what did I decide about vLLM last spring'."
+     }
+    ]
+   },
+   {
+    "uuid": "588332bf-2a8a-1b95-d4be-e8bb9bbf151f",
+    "sender": "human",
+    "created_at": "2026-09-15T19:18:00Z",
+    "content": [
+     {
+      "type": "text",
+      "text": "Could it find connections I never made explicitly?"
+     }
+    ]
+   },
+   {
+    "uuid": "ac4b9ada-a064-8156-b95d-9a9ecfcae967",
+    "sender": "assistant",
+    "created_at": "2026-09-15T19:21:00Z",
+    "content": [
+     {
+      "type": "text",
+      "text": "Link prediction does exactly that: pairs of concepts with many shared neighbors (Adamic\u2013Adar or Jaccard) but no direct edge are candidates for an idea you have not connected yet. For example quantization might link your TinyML work on the ESP32 and your LLM serving experiments even if you never discussed them together."
+     }
+    ]
+   }
+  ]
+ }
+]

@@ -1,0 +1,33 @@
+# Entity canonicalization: every variant on the right collapses into the canonical
+# node on the left. Without this, "PyTorch", "torch" and "pytorch 2" become three
+# disconnected nodes and the graph silently fragments.
+# Keep variants unambiguous (no short words like "node" or "ts").
+# Add your own in a file referenced by `aliases_file:` in kb.yaml.
+aliases:
+  PyTorch: [torch, pytorch2, pytorch 2, py torch]
+  TensorFlow: [tf, tensorflow2, tensorflow 2]
+  JavaScript: [js, javascript es6, es6]
+  Python: [python3, python 3, py3]
+  Node.js: [nodejs, node js]
+  PostgreSQL: [postgres, psql]
+  Kubernetes: [k8s, kube]
+  Docker Compose: [docker-compose]
+  CUDA: [nvidia cuda, cuda toolkit]
+  FAISS: [faiss-cpu, faiss-gpu, facebook ai similarity search]
+  Hugging Face: [huggingface, hf, hugging face hub, huggingface hub]
+  ESP32: [esp-32, esp 32, esp32-s3, esp32 s3]
+  GPT-4: [gpt4, gpt 4]
+  Large Language Model: [llm, llms, large language models]
+  Retrieval-Augmented Generation: [rag, retrieval augmented generation]
+  GraphRAG: [graph rag, graph-rag]
+  Obsidian: [obsidian.md, obsidian vault]
+  Visual Studio Code: [vscode, vs code]
+  React: [react.js, reactjs]
+  Next.js: [nextjs, next js]
+  GitHub: [github.com]
+  OpenAI: [open ai]
+  Anthropic: [anthropic ai]
+  Model Context Protocol: [mcp]
+  Machine Learning: [ml]
+  Reinforcement Learning: [rl]
+  Natural Language Processing: [nlp]

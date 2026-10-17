@@ -1,564 +1,269 @@
-<img width="2560" height="1600" alt="image" src="https://github.com/user-attachments/assets/4135eb15-4075-4aad-ab37-7b867ce12e29" />
-
+<img width="2560" height="1600" alt="knowledgeBase Obsidian graph" src="https://github.com/user-attachments/assets/4135eb15-4075-4aad-ab37-7b867ce12e29" />
 
 # 🧠 KnowledgeBase
 
-> **A Graph-first Personal Cognition System**
+> **A graph-first personal cognition system**
 >
-> Building an AI that doesn't just retrieve information—but understands how ideas connect, evolve, and relate over time.
+> Turn every conversation you've had with ChatGPT, Claude, Gemini and Claude Code into one connected
+> knowledge graph that you can explore, search and plug into your AI agents.
+
+![The atlas: open a concept, hop to a neighbour, follow a discovered route](docs/images/atlas-demo.webp)
 
 ---
 
-## Motivation
+## Why
 
-Every day we interact with multiple AI systems:
+Every day we think out loud with AI assistants — ChatGPT, Claude, Gemini, Claude Code, OpenCode.
+Each conversation contains knowledge, but it is scattered across apps, and finding *where* something was
+discussed is often harder than understanding it again.
 
-- ChatGPT
-- Claude
-- Gemini
-- OpenCode
-- Terminal sessions
-- Documentation
-- GitHub
+KnowledgeBase treats your chat history as one body of knowledge instead of a pile of chat logs:
 
-Each conversation contains knowledge.
-
-Unfortunately, that knowledge is scattered.
-
-Finding *where* something was discussed is often harder than understanding it.
-
-This project aims to solve that problem.
-
-Instead of treating conversations as independent chat logs, the system transforms them into an interconnected knowledge graph capable of semantic retrieval, graph reasoning, and eventually autonomous knowledge discovery.
+* **Connected** — concepts are linked across conversations and platforms, so you see how your ideas relate.
+* **Searchable** — graph-aware search finds passages even when they share no words with your question.
+* **Discoverable** — the graph points out bridges, unexpected links and ideas you never connected yourself.
+* **Usable by your agents** — an MCP server gives Claude Code, Cursor or any MCP client access to your history.
+* **Local-first** — everything runs on your machine; the vault is plain Obsidian markdown.
 
 ---
 
-# Vision
+## Quick start
 
-Instead of this...
+```bash
+git clone https://github.com/5uryansh/knowledgeBase && cd knowledgeBase
+pip install -e ".[ml]"                 # or ".[lite]" for a small, torch-free install (see below)
+python -m spacy download en_core_web_sm
 
-```
-ChatGPT
- ├── Conversation A
- ├── Conversation B
- └── Conversation C
-
-Claude
- ├── Conversation D
- └── Conversation E
-
-Gemini
- ├── Conversation F
+kb demo                                # builds the bundled sample chats and opens the atlas
+#   → http://127.0.0.1:3001             (explorer)
+#   → http://127.0.0.1:3001/api/mcp     (MCP endpoint)
 ```
 
-we build...
+With your own data ([how to get your exports](docs/exports.md)):
 
-```
-                     CUDA
-                    /    \
-              PyTorch   Triton
-                 |         |
-                 |      Quantization
-                 |
-    Embeddings ----- Retrieval ----- FAISS
-          |                |
-          |             GraphRAG
-          |
-     World Models
-          |
-     Reinforcement Learning
+```bash
+# put your exports where kb looks by default (or pass --export / use kb.yaml)
+#   data/chatgpt/conversations.json
+#   data/claude/conversations.json
+#   data/gemini/Takeout/My Activity/Gemini Apps/MyActivity.json
+#   data/claude-code/projects/            (optional: ~/.claude/projects is read directly otherwise)
+kb build                               # parse → vault → graph → index
+kb serve                               # explorer + REST API + MCP on port 3001
+kb search "how did I fix the e-ink ghosting"
 ```
 
-Knowledge becomes connected by meaning rather than by conversation boundaries.
+| install | embeddings | entities | size | when |
+|---|---|---|---|---|
+| `.[ml]` | `BAAI/bge-small-en-v1.5` (sentence-transformers) | GLiNER (zero-shot NER) | torch + ~200 MB models | best quality (default) |
+| `.[lite]` | WordLlama (static, weights ship in the wheel) | spaCy + technical-term patterns | ~20 MB | laptops, air-gapped, CI |
+
+`kb build` picks the best backend available automatically (`--embedder`, `--entities` override it).
+Re-running it is cheap: parsing is idempotent and concept extraction is cached per conversation.
 
 ---
 
-# Architecture
+## The atlas (graph explorer)
 
-```
-                  Raw AI Exports
-        ┌────────────┬─────────────┐
-        │            │             │
-    ChatGPT      Claude        Gemini
-        │            │             │
-        └────────────┴─────────────┘
-                     │
-              Conversation Parsers
-                     │
-             Standard Markdown
-                     │
-            Obsidian Enrichment
-        ┌────────────┴─────────────┐
-        │                          │
-   Topic Extraction         Entity Extraction
-        │                          │
-        └────────────┬─────────────┘
-                     │
-              Wiki-style Linking
-                     │
-      [[CUDA]] [[PyTorch]] [[FAISS]]
-                     │
-          ┌──────────┴──────────┐
-          │                     │
-   Knowledge Graph        Mention Index
-          │
-   Edge Extraction
-          │
-   Graph Export (JSON)
-          │
-──────────┼────────────────────────────────────────────
-          │
-      Chunking
-          │
-     Embedding Model
-          │
-      FAISS Index
-          │
-  Graph-aware Retriever
-          │
-    Future LLM Interface
-```
+![The atlas overview: the most important concepts first, grouped into regions](docs/images/atlas-overview.png)
+
+The browser never loads the whole graph. It opens with the ~50 most important concepts — PageRank blended
+with how often you came back to a topic, discounted for generic words — grouped into **regions**
+(communities). Clicking a concept loads only its neighbourhood.
+
+| Concept view | Graph-aware search |
+|---|---|
+| ![Concept view](docs/images/atlas-concept.png) | ![Search](docs/images/atlas-search.png) |
+
+* **Gazetteer panel** — strongest related concepts, typed relations with the sentence they came from,
+  a timeline, and every conversation that mentions the concept (open it in the built-in reader, where
+  every wiki-link is clickable).
+* **Search** — ask in plain language; results come with the concepts that connected them to your question.
+* **Discover** — structural insights, each shown as a route on the map:
+  * *hidden connections*: recurring concepts never discussed together that share many neighbours
+    (Adamic–Adar link prediction) — candidates for an idea you haven't connected yet
+  * *unexpected links*: strong associations (NPMI) between different regions
+  * *bridges*: concepts that connect otherwise separate regions (betweenness)
+  * *not visited lately*: important concepts you haven't touched in months
+
+![Discover in dark mode](docs/images/atlas-discover-dark.png)
+
+**Let it write your wiki (optional):** `kb summarize --top 50` asks an LLM what *you* learned, built and
+decided about each important concept, using only your own conversations, with a source on every bullet. Any
+OpenAI-compatible endpoint works (Ollama, vLLM, LM Studio, OpenAI, a Hugging Face Space —
+`KB_LLM_BASE_URL` + `KB_LLM_MODEL`), or Gemini (`GEMINI_API_KEY`). Summaries are cached by their evidence,
+survive rebuilds, and appear in the atlas, the Obsidian notes and the `explore_concept` MCP tool.
+
+**Share it without a server:** `kb export site/` writes the atlas as a static site (pre-computed JSON shards,
+still lazy-loaded) that you can host on GitHub Pages or any static host. Conversation text is only included
+with `--include-conversations`. This repository's `pages.yml` workflow publishes the sample-data atlas on every
+push to `main` (enable *Settings → Pages → Source: GitHub Actions* once).
 
 ---
 
-# Current Pipeline
+## MCP server — give your agents your memory
 
-## 1. Conversation Parsing
+`kb serve` exposes a [Model Context Protocol](https://modelcontextprotocol.io) endpoint (Streamable HTTP)
+at **`http://127.0.0.1:3001/api/mcp`**.
 
-Every supported AI platform is converted into a unified markdown representation.
+| tool | what it does |
+|---|---|
+| `search_knowledge` | graph-aware search over your past conversations, with citations |
+| `explore_concept` | everything known about a concept: neighbours, relations, conversations, timeline |
+| `find_connection` | strongest path between two concepts, with evidence for each hop |
+| `discover` | bridges, unexpected links, hidden connections, forgotten topics |
+| `get_conversation` | read a conversation (or the turns around a passage) |
+| `top_concepts` | the central concepts and themes of your graph |
+| `recent_activity` | what you worked on in a period ("last week", "March 2026", "last spring"): conversations, recurring and new concepts |
 
-Currently supported:
+```bash
+# Claude Code
+claude mcp add --transport http knowledgebase http://127.0.0.1:3001/api/mcp
+```
 
-- ChatGPT
-- Claude
-- Gemini
+```jsonc
+// Cursor / Windsurf / any client that speaks Streamable HTTP
+{ "mcpServers": { "knowledgebase": { "url": "http://127.0.0.1:3001/api/mcp" } } }
 
-Regardless of the original export format, every conversation becomes a standardized markdown document.
+// Claude Desktop (stdio only) via the mcp-remote bridge
+{ "mcpServers": { "knowledgebase": { "command": "npx", "args": ["mcp-remote", "http://127.0.0.1:3001/api/mcp"] } } }
+```
+
+All tools are read-only. The server binds to localhost and rejects browser requests from foreign origins
+(DNS-rebinding protection); add `--allow-origin` if you need to call it from another web app.
 
 ---
 
-## 2. Markdown Enrichment
-
-Each conversation is processed through an enrichment pipeline.
-
-### Topic Extraction
-
-Automatically detects high-level discussion topics.
-
-Example
+## How it works
 
 ```
-Diffusion Models
-
-↓
-
-[[diffusion_models]]
-```
-
----
-
-### Entity Extraction
-
-Named entities are extracted using GLiNER.
-
-Examples
-
-```
-CUDA
-PyTorch
-Prisma
-Zero Sync
-FAISS
-```
-
----
-
-### Wiki Link Injection
-
-Entities and topics are automatically converted into Obsidian links.
-
-Example
-
-```
-CUDA
-
-↓
-
-[[cuda|CUDA]]
-```
-
-This enables:
-
-- backlink generation
-- graph visualization
-- mention tracking
-
----
-
-### Mention Writer
-
-Every entity maintains its own page.
-
-Example
-
-```
-entities/
-
-CUDA.md
-
-PyTorch.md
-
-FAISS.md
-```
-
-Each entity page automatically receives backlinks to conversations mentioning it.
-
----
-
-# Knowledge Graph
-
-The graph is built entirely from markdown.
-
-Every paragraph and sentence contributes relationships.
-
-Example
-
-```
-CUDA
-PyTorch
-Embeddings
-```
-
-becomes
-
-```
-CUDA ───── PyTorch
-   │
-   │
-Embeddings
-```
-
-Edges are weighted according to context.
-
-Example
-
-| Context | Weight |
-|----------|--------|
-| Sentence | High |
-| Paragraph | Medium |
-| Conversation | Low |
-
-This creates a weighted co-occurrence graph instead of simple hyperlinks.
-
----
-
-# Relation Extraction
-
-Beyond co-occurrence, explicit relationships are extracted.
-
-Example
-
-```
-CUDA accelerates PyTorch
-
-↓
-
-CUDA
-   ── accelerates ──►
-                     PyTorch
-```
-
-These relations are exported separately for future reasoning.
-
----
-
-# Retrieval Pipeline
-
-The current retriever combines semantic search with graph information.
-
-```
-User Query
-      │
-      ▼
-Embedding Model
-      │
-      ▼
-Vector Search (FAISS)
-      │
-      ▼
-Entity Detection
-      │
-      ▼
-Graph Expansion
-      │
-      ▼
-Chunk Retrieval
-```
-
-The graph is not replacing vector search.
-
-It augments it.
-
----
-
-# Current Indexes
-
-```
-indexes/
-
-embeddings.faiss
-
-chunk_ids.txt
-
-chunks.json
-
-entity_index.json
-
-graph_edges.json
-
-graph_relations.json
-```
-
-Each file has a dedicated responsibility.
-
----
-
-## chunks.json
-
-Stores every chunk.
-
-```
-Chunk
-├── id
-├── source
-├── links
-└── text
-```
-
----
-
-## embeddings.faiss
-
-Stores vector embeddings.
-
-Used for semantic retrieval.
-
----
-
-## entity_index.json
-
-Maps normalized entities to canonical nodes.
-
-Example
-
-```
-CUDA
-
-↓
-
-cuda
-```
-
----
-
-## graph_edges.json
-
-Stores the weighted co-occurrence graph.
-
-Example
-
-```
-CUDA
-
-↓
-
-PyTorch
-
-↓
-
-Embeddings
-```
-
----
-
-## graph_relations.json
-
-Stores explicit semantic relationships.
-
----
-
-# Obsidian
-
-The vault is designed to be human-readable.
-
-```
-KnowledgeBase/
-
-conversations/
-
-entities/
-
-topics/
-
-indexes/
-```
-
-Conversations remain readable while simultaneously acting as machine-processable knowledge.
-
----
-
-# Why Obsidian?
-
-Obsidian gives us
-
-- backlinks
-- graph visualization
-- local-first storage
-- markdown interoperability
-
-The vault acts as both
-
-- human interface
-- machine knowledge base
-
----
-
-# Current Retrieval Strategy
-
-```
-                  Query
-                    │
-        ┌───────────┴────────────┐
-        │                        │
-   Vector Retrieval         Entity Match
-        │                        │
-        ▼                        ▼
- Relevant Chunks          Seed Entities
-        │                        │
-        └───────────┬────────────┘
+ ChatGPT · Claude · Gemini · Claude Code exports
+                    │  parsers → one Conversation model
                     ▼
-             Graph Expansion
+ ① propose concepts per conversation        GLiNER / spaCy entities + noun-phrase topics,
+                                             POS + stop-list filtering, alias canonicalisation
+ ② select a global vocabulary                a concept mentioned once in five conversations
+                                             matters even if no single conversation says so
+ ③ link every conversation                   [[node|surface]] wiki-links (n-gram dictionary,
+                                             never inside code/URLs, idempotent)
                     │
-                    ▼
-          Expanded Context
+        ┌───────────┴─────────────────────────────┐
+        ▼                                         ▼
+ Obsidian vault                            Knowledge graph
+ conversations/<platform>/…md              co-occurrence: sentence > paragraph > conversation
+ entities/*.md, topics/*.md                NPMI-weighted (hubs can't dominate)
+ (your edits outside the generated         typed relations with evidence sentences
+  block are preserved)                     PageRank · Louvain regions · betweenness · discoveries
+                                                  │
+                                                  ▼
+                                   Index: chunks (prompt + answer pairs)
+                                          BM25 · dense embeddings · concept ↔ chunk graph
+                                                  │
+                                                  ▼
+                       Retrieval = BM25 + dense + Personalized PageRank, fused with RRF
+                                                  │
+                                ┌─────────────────┼─────────────────┐
+                                ▼                 ▼                 ▼
+                            kb search       atlas (REST API)     MCP tools
 ```
 
-This architecture combines semantic similarity with structural knowledge.
+### Graph retrieval
+
+The retrieval graph joins concepts and chunks:
+`concept ─ concept` (NPMI strength), `concept ─ chunk` (IDF-weighted mentions) and `chunk ─ chunk`
+(adjacent turns). A query activates seed concepts — the ones it names, plus those in the best BM25/dense
+hits — and **Personalized PageRank** spreads that activation through the graph (the HippoRAG idea). A chunk
+can therefore rank highly because it is *connected* to the question, not only because it shares words with
+it. The graph ranking is fused with BM25, dense and a conversation-level prior (chunks inherit the score of
+their whole conversation) using weighted reciprocal-rank fusion; time hints in the question ("in March",
+"last spring", "two months ago") softly favour conversations from that window. Every result reports which
+concepts connected it (`via`).
 
 ---
 
-# Design Principles
+## Benchmarks
 
-## Graph First
+Retrieval is measured on **[LoCoMo](https://github.com/snap-research/locomo)** (ACL 2024), a benchmark of
+very long multi-session chat histories with annotated evidence turns — exactly the "where did I discuss X"
+problem. Each history is converted into a Claude export and run through the full pipeline. Parameters were
+tuned on a dev split (2 histories) and reported once on the held-out **test split (8 histories, 1,304
+questions)**.
 
-Knowledge is represented as relationships rather than isolated documents.
+| retrieval | Recall@5 | Recall@10 | Recall@20 | MRR | nDCG@10 | multi-hop R@10 |
+|---|---|---|---|---|---|---|
+| **graph + hybrid (default)** | **0.673** | **0.757** | **0.820** | **0.580** | **0.599** | **0.459** |
+| BM25 + dense (hybrid) | 0.656 | 0.717 | 0.773 | 0.564 | 0.576 | 0.443 |
+| BM25 | 0.640 | 0.717 | 0.765 | 0.572 | 0.581 | 0.435 |
+| graph only (PPR) | 0.480 | 0.572 | 0.656 | 0.376 | 0.404 | 0.304 |
+| dense only | 0.468 | 0.544 | 0.641 | 0.401 | 0.411 | 0.306 |
+| previous retriever (v0.1) | 0.463 | 0.538 | 0.561 | 0.394 | 0.407 | 0.304 |
 
----
+<sub>Embeddings: WordLlama (the `lite` backend), entities: spaCy — the benchmark environment could not
+download transformer models. With `bge-small` dense retrieval is considerably stronger; re-run the benchmark
+on your machine with `--embedder sentence-transformers`. The v0.1 retriever returned on average 334
+unranked chunks per query; its top-10 equals plain dense search.</sub>
 
-## Local First
-
-Everything remains local.
-
-No cloud dependency.
-
----
-
-## Platform Agnostic
-
-The parser normalizes every AI platform into the same internal representation.
-
-Adding a new provider should require only a parser.
-
----
-
-## Extensible
-
-Every major subsystem is independent.
-
-```
-Parser
-
-↓
-
-Markdown
-
-↓
-
-Graph
-
-↓
-
-Retriever
-
-↓
-
-LLM
+```bash
+python -m benchmarks.run --split test                 # full LoCoMo evaluation (downloads the data)
+python -m benchmarks.tune                             # re-tune fusion/graph parameters on the dev split
+python -m benchmarks.sample                           # quick sanity check on the bundled sample chats
 ```
 
-Each layer can evolve without affecting the others.
+See [benchmarks/README.md](benchmarks/README.md) for metrics, methodology and how to benchmark your own history.
 
 ---
 
-# Roadmap
+## Project layout
 
-## Retrieval
+```
+src/knowledgebase/
+  parsers/        ChatGPT, Claude, Gemini (Takeout), Claude Code → Conversation
+  enrichment/     concept extraction, vocabulary, linker, Obsidian vault writer
+  graph/          co-occurrence (NPMI), relations, analytics & discoveries, specificity
+  retrieval/      chunker, BM25, embedders, vector store, graph retriever (PPR), fusion, index
+  server/         FastAPI app, MCP endpoint, static atlas UI
+  pipeline.py     end-to-end build          cli.py   `kb` command
+benchmarks/       LoCoMo converter, metrics, runner, tuner, legacy baseline, results/
+examples/         sample chats in each platform's native export format + sample queries
+tests/            pytest suite (parsers, linker, graph, retrieval, pipeline, REST + MCP)
+```
 
-- Hybrid Retrieval
-- Better Graph Expansion
-- Cross-Encoder Reranking
-- Multi-hop Retrieval
+### Configuration
 
----
+Everything works without configuration. To customise, copy `kb.example.yaml` to `kb.yaml`
+(`python main.py` still works too — it is the same as `kb build`):
 
-## Evaluation
+```yaml
+vault_dir: ~/Documents/KnowledgeBase     # open this folder in Obsidian
+exports:
+  claude: ~/Downloads/claude-export/conversations.json
+embedder: auto                           # auto | sentence-transformers | wordllama | none
+entity_extractor: auto                   # auto | gliner | spacy
+aliases_file: my_aliases.yaml            # extra canonical names, e.g.  PyTorch: [torch, pt2]
+port: 3001
+```
 
-A proper benchmark suite will be built.
-
-Rather than manually inspecting retrieval quality, the system will automatically evaluate itself using synthetic benchmark questions generated from indexed chunks.
-
-Metrics will include:
-
-- Recall@K
-- MRR
-- Latency
-- Ablation studies
-- Failure categorization
-
-This enables objective comparison between retrieval strategies.
-
----
-
-## Knowledge Graph
-
-Future work includes:
-
-- Community Detection
-- Temporal Graphs
-- Entity Canonicalization
-- Knowledge Evolution
-- Graph Analytics
-<img width="2560" height="1600" alt="Screenshot (114)" src="https://github.com/user-attachments/assets/05bcc0a2-ac1b-47d4-ab9d-e454ad891b88" />
+Any setting can also be given as an environment variable (`KB_VAULT_DIR`, `KB_EMBEDDER`, …).
 
 ---
 
-## LLM
+## Roadmap
 
-Eventually the retriever will power an LLM capable of:
-
-- citing sources
-- long-term memory
-- graph-aware reasoning
-- multi-hop exploration
-- personal research assistance
+- [x] Hybrid retrieval (BM25 + dense) with graph expansion via Personalized PageRank
+- [x] Benchmark suite (Recall@K, MRR, nDCG, ablations, per-question-type breakdown)
+- [x] Entity canonicalisation, NPMI hub suppression, communities, graph analytics
+- [x] Temporal signals (first/last seen, timelines, forgotten topics)
+- [x] MCP server and interactive graph explorer
+- [ ] Cross-encoder reranking of the fused shortlist
+- [ ] Incremental builds (only re-link conversations that changed)
+- [x] LLM-written concept summaries (`kb summarize`)
+- [ ] LLM-assisted relation extraction
+- [ ] OpenCode / Cursor / terminal-session parsers
+- [x] Static export of the atlas for sharing without a server
 
 ---
 
-# Long-Term Goal
+## Long-term goal
 
-The objective is not to build another chatbot.
-
-The objective is to build a persistent cognitive system that continuously grows with every conversation.
-
-Instead of forgetting after every interaction, the system accumulates knowledge, connects ideas across time, and makes past understanding immediately accessible.
-
-Over time, the knowledge graph itself becomes a map of learning, revealing not only what is known, but how concepts relate, evolve, and influence one another.
+Not another chatbot: a persistent cognitive layer that grows with every conversation. Over time the graph
+becomes a map of learning — not only *what* you know, but how concepts relate, evolve and influence one
+another — and it is available to every AI tool you use.

@@ -1,0 +1,25 @@
+{"query": "how did I fix the e-ink ghosting on partial refresh", "relevant": ["ESP32 e-paper weather station: partial refresh ghosting"], "category": "single-hop"}
+{"query": "torch.compile kernel fusion utilization", "relevant": ["Why is my PyTorch training so slow on the GPU?"], "category": "single-hop"}
+{"query": "vLLM out of memory at startup", "relevant": ["Serving a 7B model with vLLM behind an OpenAI-compatible API"], "category": "single-hop"}
+{"query": "what does gpu_memory_utilization do", "relevant": ["Serving a 7B model with vLLM behind an OpenAI-compatible API"], "category": "single-hop"}
+{"query": "prisma relation already exists baseline", "relevant": ["Prisma migrations with PostgreSQL in Docker"], "category": "single-hop"}
+{"query": "How did I implement Zero Sync?", "relevant": ["Zero sync engine vs tRPC for a real-time app"], "category": "single-hop"}
+{"query": "why does my PPO reward collapse", "relevant": ["PPO explained: proximal policy optimization"], "category": "single-hop"}
+{"query": "NextAuth login broken in production", "relevant": ["notes-app: add authentication with NextAuth"], "category": "single-hop"}
+{"query": "dithering album art for the display", "relevant": ["esp32-weather backend: FastAPI endpoint for the display"], "category": "single-hop"}
+{"query": "battery drains in two days", "relevant": ["ESP32 e-paper weather station: partial refresh ghosting"], "category": "single-hop"}
+{"query": "which FAISS index for 200k chunks", "relevant": ["FAISS index types: Flat vs IVF vs HNSW", "Choosing an embedding model for RAG"], "category": "single-hop"}
+{"query": "hub nodes connect to everything in my graph", "relevant": ["GraphRAG: when does a knowledge graph help retrieval?"], "category": "single-hop"}
+{"query": "the graph view becomes a hairball", "relevant": ["Obsidian as a knowledge base for LLM chat exports", "knowledge-graph repo: lazy-loading graph explorer UI"], "category": "single-hop"}
+{"query": "which quantization did I use both for the microcontroller and for LLM serving", "relevant": ["TinyML: running a quantized model on the ESP32", "Quantization basics: int8 vs 4-bit for LLM inference", "Revisiting quantization: FP8 on new GPUs"], "category": "multi-hop"}
+{"query": "what inference server did I pick for the AWQ model and how did I give it tool calling", "relevant": ["Quantization basics: int8 vs 4-bit for LLM inference", "Serving a 7B model with vLLM behind an OpenAI-compatible API"], "category": "multi-hop"}
+{"query": "what reverse proxy do my ESP32 backend and my FastAPI stack use", "relevant": ["esp32-weather backend: FastAPI endpoint for the display", "Docker Compose for a FastAPI + PostgreSQL stack"], "category": "multi-hop"}
+{"query": "how is the attention kernel trick related to my softmax kernel", "relevant": ["Writing my first Triton kernel: fused softmax", "Why is my PyTorch training so slow on the GPU?"], "category": "multi-hop"}
+{"query": "everything about Personalized PageRank in my retrieval benchmark", "relevant": ["Personalized PageRank in simple terms", "knowledge-graph repo: benchmark retrieval with Recall@K and MRR", "GraphRAG: when does a knowledge graph help retrieval?"], "category": "multi-hop"}
+{"query": "how do world models relate to embeddings", "relevant": ["World models: Dreamer and learning in imagination"], "category": "multi-hop"}
+{"query": "database for the notes app login and how migrations are run", "relevant": ["notes-app: add authentication with NextAuth", "Prisma migrations with PostgreSQL in Docker"], "category": "multi-hop"}
+{"query": "pages on the e-paper device and how I switch between them", "relevant": ["esp32-weather firmware: add rotary encoder page navigation"], "category": "single-hop"}
+{"query": "MCP security origin header", "relevant": ["Building an MCP server for my knowledge graph"], "category": "single-hop"}
+{"query": "where can I self-host for free on ARM", "relevant": ["Oracle Cloud free tier ARM instance for self-hosting"], "category": "single-hop"}
+{"query": "tool calling with small open models served locally", "relevant": ["Tool calling with small open models", "Serving a 7B model with vLLM behind an OpenAI-compatible API"], "category": "multi-hop"}
+{"query": "how should I evaluate retrieval quality", "relevant": ["BM25 vs embeddings: is hybrid search worth it?", "knowledge-graph repo: benchmark retrieval with Recall@K and MRR"], "category": "multi-hop"}
